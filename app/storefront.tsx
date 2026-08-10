@@ -62,7 +62,9 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const selectedRate = deliveryRates.find((rate) => rate.wilayaCode === checkout.wilayaCode && rate.active);
   const shipping = selectedRate ? (checkout.deliveryType === "office" ? selectedRate.officeCents : selectedRate.homeCents) : 0;
   const total = subtotal + shipping;
-  const heroImage = settings.heroImage || "/images/lovelystep-hero-v2.webp";
+  const heroImage = !settings.heroImage || settings.heroImage === "/images/lovelystep-hero-v2.webp"
+    ? "/images/lovelystep-hero-v3.webp"
+    : settings.heroImage;
   const productText = (product: PublicProduct) => {
     const translated = locale === "fr" ? undefined : product.translations[locale];
     return { name: translated?.name || product.name, shortDescription: translated?.shortDescription || product.shortDescription };
