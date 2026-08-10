@@ -1,139 +1,91 @@
-import { env } from "cloudflare:workers";
-import { PRODUCT_BY_ID } from "../../../lib/products";
+import { NextResponse } from "next/server";
+import { after } from "next/server";
+import { validAlgeriaAddress } from "@/lib/algeria";
+import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
+import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db";
+import { dispatchDeliveryOrder } from "@/lib/delivery-provider";
+import type { DeliveryType, OrderItem } from "@/lib/types";
 
-type OrderPayload = {
-  customer?: {
-    name?: unknown;
-    phone?: unknown;
-    address?: unknown;
-    city?: unknown;
-    postalCode?: unknown;
-    notes?: unknown;
-  };
-  website?: unknown;
-  items?: Array<{
-    productId?: unknown;
-    size?: unknown;
-    quantity?: unknown;
-  }>;
-};
-
-function clean(value: unknown, maxLength: number) {
-  return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
-}
-
-function makeReference() {
-  const date = new Date();
-  const stamp = `${String(date.getUTCFullYear()).slice(-2)}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
-  return `LS-${stamp}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
-}
+export const runtime = "nodejs";
+type RequestItem = { productId?: number; size?: string; color?: string; quantity?: number };
 
 export async function POST(request: Request) {
+  const length = Number(request.headers.get("content-length") || 0);
+  if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
+  if (!allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
+  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; address?: string; notes?: string; items?: RequestItem[] };
+  const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
+  const nameParts = submittedName.split(" ").filter(Boolean);
+  const firstName = String(body.firstName ?? nameParts.shift() ?? "").trim().slice(0, 80);
+  const lastName = String(body.lastName ?? nameParts.join(" ")).trim().slice(0, 80);
+  const customerName = submittedName || `${firstName} ${lastName}`.trim();
+  const phone = normalizeAlgerianPhone(String(body.phone ?? ""));
+  const wilayaCode = String(body.wilayaCode ?? "").padStart(2, "0");
+  const commune = String(body.commune ?? "").trim().slice(0, 120);
+  const deliveryType: DeliveryType = body.deliveryType === "office" ? "office" : "home";
+  const wilaya = validAlgeriaAddress(wilayaCode, commune);
+  const address = "";
+  const notes = String(body.notes ?? "").trim().slice(0, 500);
+  if (customerName.length < 3 || !phone || !wilaya) {
+    return NextResponse.json({ error: "Veuillez vérifier vos coordonnées de livraison." }, { status: 400 });
+  }
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 20) {
+    return NextResponse.json({ error: "Votre panier est vide ou invalide." }, { status: 400 });
+  }
+
+  const requestedItems = new Map<string, Required<Pick<RequestItem, "productId" | "size" | "quantity">> & { color: string }>();
+  for (const item of body.items) {
+    if (!item || typeof item !== "object") return NextResponse.json({ error: "Un article du panier est invalide." }, { status: 400 });
+    const productId = Number(item.productId);
+    const quantity = Number(item.quantity);
+    const size = String(item.size ?? "").trim().slice(0, 60);
+    const color = String(item.color ?? "").trim().slice(0, 80);
+    if (!Number.isInteger(productId) || productId < 1 || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || !size) {
+      return NextResponse.json({ error: "Un article du panier est invalide." }, { status: 400 });
+    }
+    const key = `${productId}\u0000${size}\u0000${color}`;
+    const current = requestedItems.get(key);
+    const combinedQuantity = (current?.quantity ?? 0) + quantity;
+    if (combinedQuantity > 10) return NextResponse.json({ error: "Maximum 10 pièces identiques par commande." }, { status: 400 });
+    requestedItems.set(key, { productId, size, color, quantity: combinedQuantity });
+  }
+
+  const items: OrderItem[] = [];
+  for (const item of requestedItems.values()) {
+    const product = getProductById(item.productId);
+    if (!product || product.status !== "published") return NextResponse.json({ error: "Un article n’est plus disponible." }, { status: 409 });
+    const availableColors = product.colors.length ? product.colors : (product.color ? [product.color] : []);
+    const color = item.color || availableColors[0] || undefined;
+    if (item.color && !availableColors.includes(item.color)) return NextResponse.json({ error: "La couleur sélectionnée n’est plus disponible." }, { status: 409 });
+    const availableStock = product.variants.length
+      ? product.variants.find((variant) => variant.size === item.size && variant.color === (color ?? ""))?.stock ?? 0
+      : product.sizes.find((value) => value.label === item.size)?.stock ?? 0;
+    if (availableStock < item.quantity) return NextResponse.json({ error: "Cette couleur ou cette taille n’est plus disponible." }, { status: 409 });
+    items.push({
+      productId: product.id,
+      slug: product.slug,
+      name: product.name,
+      image: (color ? product.colorImages[color] : "") || product.images[0] || "",
+      size: item.size,
+      color,
+      quantity: item.quantity,
+      unitPriceCents: product.priceCents,
+      unitCostCents: product.costCents,
+    });
+  }
+
+  const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
+  const deliveryRate = getDeliveryRate(wilayaCode);
+  if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
+  const shippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
   try {
-    const payload = (await request.json()) as OrderPayload;
-
-    if (clean(payload.website, 200)) {
-      return Response.json({ error: "Unable to place this order." }, { status: 400 });
-    }
-
-    const name = clean(payload.customer?.name, 80);
-    const phone = clean(payload.customer?.phone, 24);
-    const address = clean(payload.customer?.address, 140);
-    const city = clean(payload.customer?.city, 80);
-    const postalCode = clean(payload.customer?.postalCode, 16);
-    const notes = clean(payload.customer?.notes, 300);
-
-    if (!name || !address || !city || phone.replace(/\D/g, "").length < 7) {
-      return Response.json(
-        { error: "Please provide a valid name, phone number and delivery address." },
-        { status: 400 },
-      );
-    }
-
-    if (!Array.isArray(payload.items) || payload.items.length === 0 || payload.items.length > 20) {
-      return Response.json({ error: "Your bag is empty or too large." }, { status: 400 });
-    }
-
-    const items = [] as Array<{
-      productId: string;
-      name: string;
-      size: string;
-      quantity: number;
-      unitPriceCents: number;
-      lineTotalCents: number;
-    }>;
-
-    for (const rawItem of payload.items) {
-      const productId = clean(rawItem.productId, 64);
-      const size = clean(rawItem.size, 24);
-      const quantity =
-        typeof rawItem.quantity === "number" && Number.isInteger(rawItem.quantity)
-          ? rawItem.quantity
-          : 0;
-      const product = PRODUCT_BY_ID.get(productId);
-
-      if (!product || !product.sizes.includes(size) || quantity < 1 || quantity > 10) {
-        return Response.json(
-          { error: "One of the items in your bag is no longer available." },
-          { status: 400 },
-        );
-      }
-
-      const unitPriceCents = Math.round(product.price * 100);
-      items.push({
-        productId,
-        name: product.name,
-        size,
-        quantity,
-        unitPriceCents,
-        lineTotalCents: unitPriceCents * quantity,
-      });
-    }
-
-    const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
-    const subtotalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
-    const deliveryCents = subtotalCents >= 6000 ? 0 : 490;
-    const totalCents = subtotalCents + deliveryCents;
-    const id = crypto.randomUUID();
-    const reference = makeReference();
-
-    if (!env.DB) {
-      throw new Error("Order storage is unavailable.");
-    }
-
-    await env.DB.prepare(
-      `INSERT INTO orders (
-        id, reference, customer_name, phone, address, city, postal_code, notes,
-        items_json, item_count, subtotal_cents, delivery_cents, total_cents, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        id,
-        reference,
-        name,
-        phone,
-        address,
-        city,
-        postalCode,
-        notes,
-        JSON.stringify(items),
-        itemCount,
-        subtotalCents,
-        deliveryCents,
-        totalCents,
-        "pending_confirmation",
-      )
-      .run();
-
-    return Response.json(
-      { reference, totalCents, estimatedDelivery: "3–5 business days" },
-      { status: 201 },
-    );
+    const customer = await getCustomerSession();
+    const order = createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    after(() => dispatchDeliveryOrder(order));
+    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    const publicMessage = message.includes("no such table")
-      ? "Orders are temporarily unavailable. Please try again shortly."
-      : "We couldn’t place your order. Please try again.";
-    return Response.json({ error: publicMessage }, { status: 500 });
+    if (error instanceof StockUnavailableError) return NextResponse.json({ error: "Le stock vient de changer. Actualisez votre panier puis réessayez." }, { status: 409 });
+    return NextResponse.json({ error: "La commande n’a pas pu être enregistrée." }, { status: 500 });
   }
 }

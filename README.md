@@ -1,100 +1,124 @@
-# vinext-starter
+# Lovely Step
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Boutique locale Node.js/Next.js pour vêtements enfants, avec paiement à la livraison, catalogue SQLite, pages produit détaillées, comptes clients et dashboard administrateur.
 
-## Prerequisites
+Fonctions principales :
 
-- Node.js `>=22.13.0`
+- boutique FR/EN/AR avec affichage RTL en arabe ;
+- image produit associée à chaque couleur et stock par couleur/taille ;
+- compte client sécurisé par téléphone et mot de passe ;
+- sélection en cascade des 69 wilayas et 1 541 communes ;
+- livraison à domicile ou au bureau avec tarif propre à chaque wilaya ;
+- personnalisation de la façade, des textes et de la palette depuis l’administration ;
+- export Excel de toutes les commandes ;
+- connecteur générique pour l’API d’une société de livraison.
 
-## Quick Start
+## Démarrage local
+
+Prérequis : Node.js 22 ou plus récent.
 
 ```bash
 npm install
 npm run dev
+```
+
+Ouvrez `http://localhost:3000`. La première visite de `http://localhost:3000/admin` redirige vers `/admin/setup` afin de créer le compte propriétaire. Aucun identifiant par défaut n’est fourni.
+
+Pour tester exactement le build de production local :
+
+```bash
 npm run build
+npm start
 ```
 
-This starter does not use `wrangler.jsonc`.
+## Import produit assisté par IA
 
-## Included Shape
+Dans le dashboard, ouvrez **Import IA**, puis glissez-déposez :
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+1. les photos propres du produit à publier dans la boutique ;
+2. une ou plusieurs captures d’écran de la fiche fournisseur 1688.
 
-## Workspace Auth Headers
+Gemini lit les captures et prépare un brouillon structuré : nom français, descriptions, prix fournisseur en RMB, MOQ, matière, couleurs et guide des tailles. Si Gemini est indisponible, Groq prend automatiquement le relais. Aucun prix de vente n’est inventé et le produit reste en brouillon jusqu’à votre vérification.
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+Les remarques provenant des avis fournisseur restent privées. Elles ne sont jamais présentées comme des témoignages de clients Lovely Step.
 
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
+Configuration locale dans `.env.local` :
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```env
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.6-flash
+GROQ_API_KEY=
+GROQ_MODEL=qwen/qwen3.6-27b
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Les clés sont utilisées uniquement côté serveur et ne sont jamais envoyées au navigateur.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+## Livraison et export Excel
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+Dans **Administration → Livraison**, renseignez les frais domicile/bureau de chaque wilaya. Le serveur recalcule toujours le total : le navigateur ne peut pas imposer son propre tarif.
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+Le bouton **Exporter Excel** dans les commandes produit un classeur `.xlsx` contenant client, téléphone, produit, couleur, taille, quantité, prix, frais de livraison, total, wilaya, commune, mode et adresse.
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+Pour un transporteur, configurez d’abord le connecteur dans le dashboard, puis placez la clé dans `.env.local` sous le nom choisi, par exemple :
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+```env
+DELIVERY_API_TOKEN=
+```
 
-## Useful Commands
+Le connecteur ne doit être activé qu’après adaptation du format de requête à la documentation officielle de la société sélectionnée.
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+Le référentiel des adresses provient du projet MIT [Algeria-Cities](https://github.com/ihahachi/Algeria-Cities).
 
-## Learn More
+## Suppression d’arrière-plan des produits
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Avant d’ajouter le fond crème et l’overlay Lovely Step, chaque photo produit passe par une suppression d’arrière-plan locale. Cette étape utilise Rembg sur le serveur : la photo n’est envoyée à aucun service tiers.
+
+Installez le moteur une seule fois avec Python 3.11 à 3.13 :
+
+```bash
+npm run background:setup
+```
+
+Le modèle `isnet-general-use` est téléchargé au premier traitement puis conservé dans `data/background-removal-models/`. Ce premier traitement est donc plus long. Vous pouvez choisir un autre modèle avec `BACKGROUND_REMOVAL_MODEL` et préciser un exécutable Python avec `BACKGROUND_REMOVAL_PYTHON`.
+
+## Données locales
+
+- Base : `data/lovelystep.db`
+- Images produit : `public/uploads/products/`
+- Guides de tailles : `public/generated/size-guides/`
+
+Ces chemins sont ignorés par Git. Sauvegardez-les avant toute migration.
+
+## Vérifications IA
+
+Vérification des clés et des modèles :
+
+```bash
+npm run ai:test-providers
+```
+
+Test complet sur une base séparée, avec une capture synthétique et un serveur lancé sur le port `3102` :
+
+```bash
+$env:TEST_BASE_URL="http://localhost:3102"
+npm run ai:test-import
+```
+
+Tests du parcours commande et des nouvelles fonctions boutique :
+
+```bash
+npm run test:order-flow
+npm run test:store-features
+```
+
+## Mise en production ultérieure
+
+Avant une ouverture publique : configurez `NEXT_PUBLIC_SITE_URL=https://votre-domaine`, `COOKIE_SECURE=true`, un reverse proxy HTTPS, des sauvegardes chiffrées et un stockage d’images persistant. Pour plusieurs serveurs, remplacez SQLite par PostgreSQL et les fichiers locaux par un stockage objet compatible S3.
+
+Commandes de contrôle :
+
+```bash
+npm run lint
+npm run build
+npm audit
+```

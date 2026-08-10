@@ -1,509 +1,159 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { PRODUCTS, type Product } from "../lib/products";
+import Link from "next/link";
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import LanguageSwitcher from "./language-switcher";
+import { parseStoredCart, type CartItem } from "@/lib/cart";
+import { trackMeta } from "@/lib/meta-pixel";
+import { localizedAgeLabel } from "@/lib/product-size";
+import type { AlgeriaWilaya, Customer, DeliveryRate, DeliveryType, PublicProduct, StoreSettings } from "@/lib/types";
+import { useLocale } from "@/lib/use-locale";
 
-type CartItem = {
-  product: Product;
-  size: string;
-  quantity: number;
-};
+const CART_KEY = "lovelystep_cart";
 
-type Filter = "All" | "New in" | "1–3 years" | "4–6 years" | "7–10 years";
-
-const FILTERS: Filter[] = [
-  "All",
-  "New in",
-  "1–3 years",
-  "4–6 years",
-  "7–10 years",
-];
-
-const money = new Intl.NumberFormat("en", {
-  style: "currency",
-  currency: "EUR",
-});
-
-function productMatchesFilter(product: Product, filter: Filter) {
-  if (filter === "All") return true;
-  if (filter === "New in") return product.badge === "New";
-  if (filter === "1–3 years") return product.ageMin <= 3 && product.ageMax >= 1;
-  if (filter === "4–6 years") return product.ageMin <= 6 && product.ageMax >= 4;
-  return product.ageMin <= 10 && product.ageMax >= 7;
+function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "heart" | "shield" | "arrow" | "user" }) {
+  const paths = { bag: "M6 8h12l-1 12H7L6 8Zm3 0V6a3 3 0 0 1 6 0v2", menu: "M4 7h16M4 12h16M4 17h16", close: "M6 6l12 12M18 6 6 18", truck: "M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6ZM7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", cash: "M3 6h18v12H3V6Zm9 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9V8h2M18 15v1h-2", heart: "M12 20s-8-4.8-8-10a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.2-8 10-8 10Z", shield: "M12 3 5 6v5c0 4.8 2.8 8.2 7 10 4.2-1.8 7-5.2 7-10V6l-7-3Zm-3 9 2 2 4-5", arrow: "m9 18 6-6-6-6", user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0" };
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 }
 
-export function Storefront() {
-  const [filter, setFilter] = useState<Filter>("All");
+type CheckoutState = { fullName: string; phone: string; wilayaCode: string; commune: string; deliveryType: DeliveryType; notes: string };
+const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", commune: "", deliveryType: "home", notes: "" };
+
+export default function Storefront({ products, settings, wilayas, deliveryRates }: { products: PublicProduct[]; settings: StoreSettings; wilayas: AlgeriaWilaya[]; deliveryRates: DeliveryRate[] }) {
+  const { locale, setLocale, t, dir } = useLocale();
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [selectedSizes, setSelectedSizes] = useState<Record<string, string>>({});
   const [cartOpen, setCartOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [orderReference, setOrderReference] = useState("");
-  const [confirmedTotal, setConfirmedTotal] = useState(0);
-  const [formError, setFormError] = useState("");
+  const [message, setMessage] = useState("");
+  const [orderSuccess, setOrderSuccess] = useState(false);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [checkout, setCheckout] = useState<CheckoutState>(emptyCheckout);
+  const cartLoaded = useRef(false);
 
-  const visibleProducts = PRODUCTS.filter((product) =>
-    productMatchesFilter(product, filter),
-  );
-
-  const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
-  const subtotal = cart.reduce(
-    (total, item) => total + item.product.price * item.quantity,
-    0,
-  );
-  const delivery = subtotal >= 60 || subtotal === 0 ? 0 : 4.9;
-  const total = subtotal + delivery;
-
-  const freeDeliveryProgress = useMemo(
-    () => Math.min(100, Math.round((subtotal / 60) * 100)),
-    [subtotal],
-  );
+  const money = (cents: number) => new Intl.NumberFormat(locale === "ar" ? "ar-DZ" : locale === "en" ? "en-DZ" : "fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
+  const text = (value: StoreSettings["announcement"]) => value[locale] || value.fr;
+  const style = { "--navy": settings.theme.navy, "--coral": settings.theme.coral, "--cream": settings.theme.cream, "--sand": settings.theme.sand, "--pale": settings.theme.background } as CSSProperties;
 
   useEffect(() => {
-    document.body.style.overflow = cartOpen || checkoutOpen ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [cartOpen, checkoutOpen]);
+    const timer = window.setTimeout(() => {
+      setCart(parseStoredCart(localStorage.getItem(CART_KEY)));
+      cartLoaded.current = true;
+      if (new URLSearchParams(window.location.search).get("bag") === "1") setCartOpen(true);
+    }, 0);
+    void fetch("/api/account/me", { cache: "no-store" }).then((response) => response.json()).then((value) => {
+      if (!value.customer) return;
+      const current = value.customer as Customer;
+      setCustomer(current);
+      setCheckout((state) => ({ ...state, fullName: `${current.firstName} ${current.lastName}`.trim(), phone: current.phone, wilayaCode: current.wilayaCode, commune: current.commune }));
+    }).catch(() => undefined);
+    return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => { if (cartLoaded.current) localStorage.setItem(CART_KEY, JSON.stringify(cart)); }, [cart]);
+  useEffect(() => { void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "/" }) }).catch(() => undefined); }, []);
 
-  function addToCart(product: Product) {
-    const size = selectedSizes[product.id] ?? product.sizes[0];
+  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const categories = [...new Set(products.map((product) => product.category))];
+  const selectedWilaya = wilayas.find((wilaya) => wilaya.code === checkout.wilayaCode);
+  const selectedRate = deliveryRates.find((rate) => rate.wilayaCode === checkout.wilayaCode && rate.active);
+  const shipping = selectedRate ? (checkout.deliveryType === "office" ? selectedRate.officeCents : selectedRate.homeCents) : 0;
+  const total = subtotal + shipping;
+  const heroImage = settings.heroImage || products[0]?.images[0] || "/images/sunny-set.jpg";
+  const productText = (product: PublicProduct) => {
+    const translated = locale === "fr" ? undefined : product.translations[locale];
+    return { name: translated?.name || product.name, shortDescription: translated?.shortDescription || product.shortDescription };
+  };
+
+  function add(product: PublicProduct) {
+    const firstVariant = product.variants.find((value) => value.stock > 0);
+    const size = firstVariant?.size ?? product.sizes.find((value) => value.stock > 0)?.label;
+    if (!size) return;
+    const color = firstVariant?.color || product.colors[0] || product.color || undefined;
+    const image = (color ? product.colorImages[color] : "") || product.images[0] || "";
+    const display = productText(product);
+    const sizeDetails = firstVariant ?? product.sizes.find((value) => value.label === size);
+    const sizeLabel = localizedAgeLabel({ label: size, age: sizeDetails?.age }, locale);
     setCart((current) => {
-      const match = current.find(
-        (item) => item.product.id === product.id && item.size === size,
-      );
-      if (match) {
-        return current.map((item) =>
-          item === match ? { ...item, quantity: item.quantity + 1 } : item,
-        );
-      }
-      return [...current, { product, size, quantity: 1 }];
+      const found = current.find((item) => item.productId === product.id && item.size === size && item.color === color);
+      return found ? current.map((item) => item === found ? { ...item, quantity: Math.min(10, item.quantity + 1) } : item)
+        : [...current, { productId: product.id, slug: product.slug, name: display.name, image, size, sizeLabel, color, quantity: 1, unitPriceCents: product.priceCents }];
     });
+    trackMeta("AddToCart", { content_ids: [product.slug], content_type: "product", value: product.priceCents / 100, currency: "DZD" });
     setCartOpen(true);
   }
 
-  function changeQuantity(productId: string, size: string, amount: number) {
-    setCart((current) =>
-      current
-        .map((item) =>
-          item.product.id === productId && item.size === size
-            ? { ...item, quantity: item.quantity + amount }
-            : item,
-        )
-        .filter((item) => item.quantity > 0),
-    );
-  }
+  const updateQuantity = (index: number, delta: number) => setCart((current) => current.flatMap((item, itemIndex) => itemIndex === index ? (item.quantity + delta <= 0 ? [] : [{ ...item, quantity: Math.min(10, item.quantity + delta) }]) : [item]));
 
-  function beginCheckout() {
-    setCartOpen(false);
-    setCheckoutOpen(true);
-    setFormError("");
-  }
-
-  async function submitOrder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setFormError("");
-    const form = new FormData(event.currentTarget);
-
+  async function placeOrder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSubmitting(true); setMessage(""); setOrderSuccess(false);
     try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer: {
-            name: form.get("name"),
-            phone: form.get("phone"),
-            address: form.get("address"),
-            city: form.get("city"),
-            postalCode: form.get("postalCode"),
-            notes: form.get("notes"),
-          },
-          website: form.get("website"),
-          items: cart.map((item) => ({
-            productId: item.product.id,
-            size: item.size,
-            quantity: item.quantity,
-          })),
-        }),
-      });
-      const data = (await response.json()) as {
-        reference?: string;
-        error?: string;
-      };
-      if (!response.ok || !data.reference) {
-        throw new Error(data.error ?? "We couldn’t place your order. Please try again.");
-      }
-      setConfirmedTotal(total);
-      setOrderReference(data.reference);
-      setCart([]);
-    } catch (error) {
-      setFormError(
-        error instanceof Error
-          ? error.message
-          : "We couldn’t place your order. Please try again.",
-      );
-    } finally {
-      setSubmitting(false);
-    }
+      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setMessage(data.error || t("accountError")); return; }
+      trackMeta("Purchase", { content_ids: cart.map((item) => item.slug), contents: cart.map((item) => ({ id: item.slug, quantity: item.quantity })), content_type: "product", value: Number(data.totalCents || total) / 100, currency: "DZD" });
+      setCart([]); setOrderSuccess(true); setMessage(locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. سنتصل بكم للتأكيد.` : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. We will call to confirm it.` : `Merci ! Votre commande ${data.orderNumber} est enregistrée. Nous vous appellerons pour la confirmer.`);
+    } catch { setMessage(locale === "ar" ? "تعذر الاتصال بالخادم. حاولوا من جديد." : locale === "en" ? "The server could not be reached. Please try again." : "Connexion au serveur impossible. Vérifiez votre réseau puis réessayez."); }
+    finally { setSubmitting(false); }
   }
 
-  function closeCheckout() {
-    setCheckoutOpen(false);
-    setOrderReference("");
-    setConfirmedTotal(0);
-  }
-
-  return (
+  return <div className="store-shell" style={style} dir={dir}>
+    <div className="announcement">{text(settings.announcement)}</div>
+    <header className="site-header">
+      <button className="icon-button mobile-only" aria-label="Menu" onClick={() => setMenuOpen(true)}><Icon name="menu" /></button>
+      <Link href="/" className="brand"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={116} height={116} priority /></Link>
+      <nav className="main-nav" aria-label="Navigation"><a href="#nouveautes">{t("new")}</a>{categories.slice(0, 4).map((category) => <a key={category} href={`#${category.toLowerCase()}`}>{category}</a>)}<a href="#notre-promesse">{t("promise")}</a></nav>
+      <div className="header-actions"><LanguageSwitcher locale={locale} onChange={setLocale} /><button className="account-button" onClick={() => setAccountOpen(true)}><Icon name="user" /><span>{customer ? customer.firstName : t("account")}</span></button><button className="bag-button" onClick={() => setCartOpen(true)}><Icon name="bag" /><span>{t("cart")}</span>{count > 0 && <b>{count}</b>}</button></div>
+    </header>
     <main>
-      <div className="announcement">
-        <span>Free delivery over €60</span>
-        <span className="announcement-dot">•</span>
-        <span>Pay cash at your door</span>
-      </div>
-
-      <header className="site-header">
-        <a className="brand" href="#top" aria-label="Lovelystep home">
-          lovely<span>step</span><i aria-hidden="true">.</i>
-        </a>
-        <nav className={menuOpen ? "nav-links is-open" : "nav-links"} aria-label="Main navigation">
-          <a href="#shop" onClick={() => { setFilter("New in"); setMenuOpen(false); }}>New in</a>
-          <a href="#shop" onClick={() => { setFilter("All"); setMenuOpen(false); }}>Shop all</a>
-          <a href="#why-us" onClick={() => setMenuOpen(false)}>Why Lovelystep</a>
-          <a href="#faq" onClick={() => setMenuOpen(false)}>Help</a>
-        </nav>
-        <div className="header-actions">
-          <button
-            className="menu-button"
-            type="button"
-            aria-label="Toggle navigation"
-            aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
-          >
-            {menuOpen ? "Close" : "Menu"}
-          </button>
-          <button className="bag-button" type="button" onClick={() => setCartOpen(true)}>
-            Bag <span>{cartCount}</span>
-          </button>
-        </div>
-      </header>
-
-      <section className="hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">For the mess, magic &amp; everything between</p>
-          <h1>Little clothes.<br /><em>Big adventures.</em></h1>
-          <p className="hero-lede">
-            Soft, play-ready pieces they’ll reach for. Order in a few taps and
-            pay only when it arrives.
-          </p>
-          <div className="hero-actions">
-            <a className="button button-dark" href="#shop">Shop bestsellers <span>↘</span></a>
-            <a className="text-link" href="#cod">How cash on delivery works <span>→</span></a>
-          </div>
-          <div className="hero-proof" aria-label="Customer benefits">
-            <div><strong>4.8/5</strong><span>from happy parents</span></div>
-            <div><strong>14 days</strong><span>easy returns</span></div>
-          </div>
-        </div>
-        <div className="hero-gallery" aria-label="Children enjoying Lovelystep clothing">
-          <div className="hero-main-image">
-            <Image src="/images/playtime.jpg" alt="Child enjoying a colorful day of play" fill priority sizes="(max-width: 980px) 71vw, 35vw" />
-            <span className="image-label">made to move</span>
-          </div>
-          <div className="hero-side-image">
-            <Image src="/images/sunny-set.jpg" alt="Smiling child in a bright outfit" fill priority sizes="(max-width: 980px) 33vw, 18vw" />
-          </div>
-          <div className="cod-sticker" aria-label="No card needed">
-            <span>No card</span>
-            <strong>needed!</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="marquee" aria-label="Lovelystep product qualities">
-        <div>
-          <span>Soft on skin</span><i>✦</i><span>Ready for play</span><i>✦</i>
-          <span>Parent approved</span><i>✦</i><span>Easy to wash</span><i>✦</i>
-          <span>Soft on skin</span><i>✦</i><span>Ready for play</span>
-        </div>
-      </section>
-
-      <section className="shop-section" id="shop">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">The play-all-day edit</p>
-            <h2>Small wardrobe.<br />Big personality.</h2>
-          </div>
-          <p>Everyday favorites in happy colors, made for real kids and real life.</p>
-        </div>
-        <div className="filter-row" role="group" aria-label="Filter products by age">
-          {FILTERS.map((item) => (
-            <button
-              type="button"
-              key={item}
-              className={filter === item ? "active" : ""}
-              aria-pressed={filter === item}
-              onClick={() => setFilter(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-        <div className="product-grid">
-          {visibleProducts.map((product) => (
-            <article className="product-card" key={product.id}>
-              <div className="product-image">
-                <Image src={product.image} alt={product.alt} fill sizes="(max-width: 620px) 48vw, (max-width: 980px) 50vw, 31vw" />
-                {product.badge && <span className="product-badge">{product.badge}</span>}
-                <button
-                  type="button"
-                  className="quick-add"
-                  onClick={() => addToCart(product)}
-                  aria-label={`Add ${product.name} to bag`}
-                >
-                  + Add
-                </button>
-              </div>
-              <div className="product-meta">
-                <div>
-                  <h3>{product.name}</h3>
-                  <p>{product.color} · {product.category}</p>
-                </div>
-                <p className="price">
-                  {money.format(product.price)}
-                  {product.compareAt && <s>{money.format(product.compareAt)}</s>}
-                </p>
-              </div>
-              <label className="size-select">
-                <span className="sr-only">Size for {product.name}</span>
-                <select
-                  value={selectedSizes[product.id] ?? product.sizes[0]}
-                  onChange={(event) =>
-                    setSelectedSizes((current) => ({
-                      ...current,
-                      [product.id]: event.target.value,
-                    }))
-                  }
-                >
-                  {product.sizes.map((size) => <option key={size}>{size}</option>)}
-                </select>
-              </label>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="why-section" id="why-us">
-        <div className="why-card why-intro">
-          <p className="eyebrow">Why parents pick us</p>
-          <h2>Happy clothes.<br /><em>Zero drama.</em></h2>
-          <p>
-            Thoughtful pieces, honest prices and a checkout that doesn’t ask for
-            your card. That’s the whole idea.
-          </p>
-        </div>
-        <div className="why-card why-feature yellow">
-          <span className="feature-number">01</span>
-          <div>
-            <strong>Feel-good fabrics</strong>
-            <p>Soft, breathable cotton blends made for sensitive little humans.</p>
-          </div>
-        </div>
-        <div className="why-card why-feature coral">
-          <span className="feature-number">02</span>
-          <div>
-            <strong>Play-proof details</strong>
-            <p>Easy fits, comfy seams and care labels that keep laundry simple.</p>
-          </div>
-        </div>
-        <div className="why-card why-image">
-          <Image src="/images/cozy-knit.jpg" alt="Happy child in a Lovelystep striped top" fill sizes="(max-width: 980px) 100vw, 55vw" />
-        </div>
-      </section>
-
-      <section className="cod-section" id="cod">
-        <div className="cod-heading">
-          <p className="eyebrow">No card? No problem.</p>
-          <h2>From our rack<br />to your door.</h2>
-        </div>
-        <ol className="cod-steps">
-          <li><span>1</span><div><strong>Pick their favorites</strong><p>Choose the size, add to bag and review your order.</p></div></li>
-          <li><span>2</span><div><strong>Share delivery details</strong><p>Tell us where to send it—no payment details needed.</p></div></li>
-          <li><span>3</span><div><strong>Pay when it arrives</strong><p>Have the order total ready for the courier at your door.</p></div></li>
-        </ol>
-        <a className="button button-light" href="#shop">Build their bundle <span>↑</span></a>
-      </section>
-
-      <section className="testimonial-section">
-        <p className="eyebrow">The parent group chat says</p>
-        <blockquote>
-          “The clothes survived a birthday party, finger paint and three washes
-          in one week. Still soft, still adorable.”
-        </blockquote>
-        <div className="testimonial-author">
-          <span>★★★★★</span>
-          <p><strong>Maya, mum of two</strong><br />Verified order</p>
-        </div>
-      </section>
-
-      <section className="faq-section" id="faq">
-        <div>
-          <p className="eyebrow">Good to know</p>
-          <h2>Questions,<br />meet answers.</h2>
-        </div>
-        <div className="faq-list">
-          <details open><summary>How does cash on delivery work?<span>+</span></summary><p>Place your order without entering card details. Your courier collects the exact order total when your parcel arrives.</p></details>
-          <details><summary>When will my order arrive?<span>+</span></summary><p>Most orders arrive within 3–5 business days. We’ll contact you using the phone number on your order before delivery.</p></details>
-          <details><summary>Can I return an item?<span>+</span></summary><p>Yes. Unworn items with tags can be returned within 14 days of delivery. Contact our care team to start a return.</p></details>
-          <details><summary>How do I choose the right size?<span>+</span></summary><p>Our fits follow the age range shown on each piece. If your child is between sizes, choose the larger size for extra growing room.</p></details>
-        </div>
-      </section>
-
-      <footer>
-        <div className="footer-top">
-          <a className="brand footer-brand" href="#top">lovely<span>step</span><i>.</i></a>
-          <p>Clothes for little people<br />with big plans.</p>
-          <a className="footer-shop" href="#shop">Shop the edit <span>↗</span></a>
-        </div>
-        <div className="footer-bottom">
-          <span>© 2026 Lovelystep</span>
-          <div><a href="#faq">Delivery &amp; returns</a><a href="#faq">Privacy</a><a href="#faq">Contact</a></div>
-          <span>Made for everyday magic</span>
-        </div>
-      </footer>
-
-      {cartCount > 0 && !cartOpen && !checkoutOpen && (
-        <button className="mobile-cart-bar" type="button" onClick={() => setCartOpen(true)}>
-          <span>View bag · {cartCount} {cartCount === 1 ? "item" : "items"}</span>
-          <strong>{money.format(total)}</strong>
-        </button>
-      )}
-
-      <div className={cartOpen ? "drawer-shell is-open" : "drawer-shell"} aria-hidden={!cartOpen}>
-        <button className="drawer-backdrop" type="button" aria-label="Close bag" onClick={() => setCartOpen(false)} />
-        <aside className="cart-drawer" role="dialog" aria-modal="true" aria-label="Shopping bag">
-          <div className="drawer-header">
-            <div><p className="eyebrow">Your picks</p><h2>Shopping bag <span>{cartCount}</span></h2></div>
-            <button type="button" onClick={() => setCartOpen(false)} aria-label="Close shopping bag">×</button>
-          </div>
-          {cart.length === 0 ? (
-            <div className="empty-cart">
-              <span aria-hidden="true">☀</span>
-              <h3>Your bag is ready for fun.</h3>
-              <p>Add a few play-all-day favorites to get started.</p>
-              <button className="button button-dark" type="button" onClick={() => setCartOpen(false)}>Keep browsing</button>
-            </div>
-          ) : (
-            <>
-              <div className="shipping-progress">
-                <p>{subtotal >= 60 ? "You unlocked free delivery!" : `${money.format(60 - subtotal)} away from free delivery`}</p>
-                <div><span style={{ width: `${freeDeliveryProgress}%` }} /></div>
-              </div>
-              <div className="cart-items">
-                {cart.map((item) => (
-                  <div className="cart-item" key={`${item.product.id}-${item.size}`}>
-                    <Image src={item.product.image} alt="" width={96} height={118} />
-                    <div className="cart-item-info">
-                      <div><h3>{item.product.name}</h3><p>{item.size} · {item.product.color}</p></div>
-                      <strong>{money.format(item.product.price * item.quantity)}</strong>
-                      <div className="quantity-picker" aria-label={`Quantity for ${item.product.name}`}>
-                        <button type="button" onClick={() => changeQuantity(item.product.id, item.size, -1)} aria-label="Decrease quantity">−</button>
-                        <span>{item.quantity}</span>
-                        <button type="button" onClick={() => changeQuantity(item.product.id, item.size, 1)} aria-label="Increase quantity">+</button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="cart-summary">
-                <div><span>Subtotal</span><strong>{money.format(subtotal)}</strong></div>
-                <div><span>Delivery</span><strong>{delivery === 0 ? "Free" : money.format(delivery)}</strong></div>
-                <div className="cart-total"><span>Total</span><strong>{money.format(total)}</strong></div>
-                <button className="button button-dark checkout-button" type="button" onClick={beginCheckout}>Checkout · Pay on delivery <span>→</span></button>
-                <p>Cash on delivery · 14-day returns</p>
-              </div>
-            </>
-          )}
-        </aside>
-      </div>
-
-      {checkoutOpen && (
-        <div className="checkout-shell">
-          <button className="checkout-backdrop" type="button" aria-label="Close checkout" onClick={closeCheckout} />
-          <section className="checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
-            {orderReference ? (
-              <div className="order-success">
-                <div className="success-mark" aria-hidden="true">✓</div>
-                <p className="eyebrow">Order confirmed</p>
-                <h2 id="checkout-title">Happy mail is<br />on the way.</h2>
-                <p>
-                  We’ve saved your order as <strong>{orderReference}</strong>. We’ll
-                  call before delivery in 3–5 business days. Pay the courier
-                  {money.format(confirmedTotal)} when it arrives.
-                </p>
-                <button className="button button-dark" type="button" onClick={closeCheckout}>Back to Lovelystep</button>
-              </div>
-            ) : (
-              <>
-                <div className="checkout-topbar">
-                  <button type="button" onClick={() => { setCheckoutOpen(false); setCartOpen(true); }}>← Back to bag</button>
-                  <div><span className="done">Bag</span><i /><span className="active">Details</span><i /><span>Done</span></div>
-                  <button type="button" onClick={closeCheckout} aria-label="Close checkout">×</button>
-                </div>
-                <div className="checkout-grid">
-                  <form className="checkout-form" onSubmit={submitOrder}>
-                    <p className="eyebrow">Almost yours</p>
-                    <h2 id="checkout-title">Where should<br />we send the fun?</h2>
-                    <div className="field-row">
-                      <label><span>Full name</span><input name="name" autoComplete="name" required maxLength={80} placeholder="Your name" /></label>
-                      <label><span>Phone number</span><input name="phone" autoComplete="tel" inputMode="tel" required minLength={7} maxLength={24} placeholder="For delivery updates" /></label>
-                    </div>
-                    <label><span>Street address</span><input name="address" autoComplete="street-address" required maxLength={140} placeholder="Building, street, area" /></label>
-                    <div className="field-row city-row">
-                      <label><span>City</span><input name="city" autoComplete="address-level2" required maxLength={80} placeholder="Your city" /></label>
-                      <label><span>Postal code</span><input name="postalCode" autoComplete="postal-code" maxLength={16} placeholder="Optional" /></label>
-                    </div>
-                    <label><span>Delivery note <small>optional</small></span><textarea name="notes" maxLength={300} placeholder="Landmark, preferred time, or anything helpful" /></label>
-                    <label className="honeypot" aria-hidden="true"><span>Website</span><input name="website" tabIndex={-1} autoComplete="off" /></label>
-                    <div className="payment-choice">
-                      <div className="radio-selected" aria-hidden="true"><span /></div>
-                      <div><strong>Cash on delivery</strong><p>Pay {money.format(total)} directly to the courier when your order arrives.</p></div>
-                      <span>Selected</span>
-                    </div>
-                    {formError && <p className="form-error" role="alert">{formError}</p>}
-                    <button className="button button-dark place-order" type="submit" disabled={submitting}>
-                      {submitting ? "Placing your order…" : `Place order · ${money.format(total)}`}
-                      {!submitting && <span>→</span>}
-                    </button>
-                    <p className="form-privacy">By placing this order, you agree that we may use your details to arrange delivery and contact you about this order.</p>
-                  </form>
-                  <aside className="order-review">
-                    <div className="review-heading"><h3>Your order</h3><button type="button" onClick={() => { setCheckoutOpen(false); setCartOpen(true); }}>Edit</button></div>
-                    <div className="review-items">
-                      {cart.map((item) => (
-                        <div key={`${item.product.id}-${item.size}`}>
-                          <Image src={item.product.image} alt="" width={58} height={68} />
-                          <p><strong>{item.product.name}</strong><span>{item.size} · Qty {item.quantity}</span></p>
-                          <strong>{money.format(item.product.price * item.quantity)}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="review-totals">
-                      <p><span>Subtotal</span><strong>{money.format(subtotal)}</strong></p>
-                      <p><span>Delivery</span><strong>{delivery === 0 ? "Free" : money.format(delivery)}</strong></p>
-                      <p><span>Total</span><strong>{money.format(total)}</strong></p>
-                    </div>
-                    <div className="review-promise"><span aria-hidden="true">♡</span><p><strong>The Lovelystep promise</strong><br />Soft favorites, careful packing and easy 14-day returns.</p></div>
-                  </aside>
-                </div>
-              </>
-            )}
-          </section>
-        </div>
-      )}
+      <section className="hero"><div className="hero-copy"><span className="eyebrow">{text(settings.heroEyebrow)}</span><h1>{text(settings.heroTitle)} <em>{text(settings.heroAccent)}</em></h1><p>{text(settings.heroDescription)}</p><div className="hero-actions"><a className="primary-button" href="#nouveautes">{text(settings.primaryCta)}</a><a className="text-link" href="#notre-promesse">{t("promise")} <Icon name="arrow" /></a></div><div className="mini-trust"><span>✓ {t("noOnline")}</span><span>✓ {t("phoneConfirm")}</span></div></div>
+        <div className="hero-visual"><Image src={heroImage} alt="Collection Lovely Step" fill priority sizes="(max-width: 800px) 100vw, 50vw" unoptimized={heroImage.startsWith("/api/media/")} /><div className="hero-stamp"><strong>Tiny Steps</strong><span>Big Love</span></div></div></section>
+      <section className="trust-strip" id="notre-promesse">{[{ icon: "cash" as const, title: t("cod"), copy: t("codText") }, { icon: "truck" as const, title: t("tracked"), copy: t("trackedText") }, { icon: "heart" as const, title: t("children"), copy: t("childrenText") }, { icon: "shield" as const, title: t("exchange"), copy: t("exchangeText") }].map((item) => <article key={item.title}><Icon name={item.icon} /><div><strong>{item.title}</strong><span>{item.copy}</span></div></article>)}</section>
+      <section className="collection" id="nouveautes"><div className="section-heading"><div><span className="eyebrow">{t("favorites")}</span><h2>{t("collection")}</h2></div><p>{t("collectionText")}</p></div><div className="product-grid">{products.map((product) => { const firstColor = product.colors[0] || product.color; const image = product.colorImages[firstColor] || product.images[0] || "/images/soft-days.jpg"; const display = productText(product); return <article className="product-card" key={product.id} id={product.category.toLowerCase()}><Link href={`/produits/${product.slug}`} className="product-image">{product.badge && <span className="badge">{product.badge}</span>}<Image src={image} alt={display.name} fill sizes="(max-width: 700px) 50vw, 33vw" unoptimized={image.startsWith("/api/media/")} /></Link><div className="product-info"><div><span className="product-category">{product.category}</span><Link href={`/produits/${product.slug}`}><h3>{display.name}</h3></Link><p>{product.colors.length ? product.colors.join(" · ") : product.color}</p></div><div className="price-line"><strong>{money(product.priceCents)}</strong>{product.compareAtCents && <del>{money(product.compareAtCents)}</del>}</div><div className="card-actions"><Link className="secondary-button" href={`/produits/${product.slug}`}>{t("viewProduct")}</Link><button aria-label={display.name} onClick={() => add(product)}><Icon name="bag" /></button></div></div></article>; })}</div></section>
+      <section className="story"><div><span className="eyebrow">Tiny Steps, Big Love</span><h2>{text(settings.storyTitle)}</h2><p>{text(settings.storyDescription)}</p><a href="#nouveautes" className="primary-button">{t("findOutfit")}</a></div><Image src="/images/little-explorer.jpg" alt="Lovely Step" width={700} height={700} /></section>
     </main>
-  );
+    <footer><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={120} height={120} /><p>Tiny Steps, Big Love</p><small>© {new Date().getFullYear()} Lovely Step. {t("rights")}</small><Link href="/admin/login" className="admin-link">Administration</Link></footer>
+
+    {menuOpen && <div className="mobile-menu"><button className="icon-button" aria-label="Close" onClick={() => setMenuOpen(false)}><Icon name="close" /></button><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={130} height={130} /><LanguageSwitcher locale={locale} onChange={setLocale} /><a href="#nouveautes" onClick={() => setMenuOpen(false)}>{t("new")}</a>{categories.map((category) => <a key={category} href={`#${category.toLowerCase()}`} onClick={() => setMenuOpen(false)}>{category}</a>)}</div>}
+    {cartOpen && <><button className="drawer-backdrop" aria-label="Close" onClick={() => setCartOpen(false)} /><aside className="cart-drawer" aria-label={t("cart")}><div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>{cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <><div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} unoptimized={item.image.startsWith("/api/media/")} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div><div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{locale === "ar" ? "حسب الولاية" : locale === "en" ? "Based on wilaya" : "Selon la wilaya"}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div></>}</aside></>}
+    {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
+      <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
+      <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
+      {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
+        <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
+        <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
+        <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
+        <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend><label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home" })} /> <Icon name="truck" /> {t("home")}</label><label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> {t("office")}</label></fieldset>
+        <label>{t("note")}<textarea value={checkout.notes} onChange={(event) => setCheckout({ ...checkout, notes: event.target.value })} rows={3} /></label>
+        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{t("orderHelp")}</small>
+      </form>}
+    </section></div>}
+    {accountOpen && <AccountModal customer={customer} wilayas={wilayas} locale={locale} t={t} onClose={() => setAccountOpen(false)} onCustomer={(value) => { setCustomer(value); setCheckout((state) => ({ ...state, fullName: `${value.firstName} ${value.lastName}`.trim(), phone: value.phone, wilayaCode: value.wilayaCode, commune: value.commune })); }} onLogout={() => { setCustomer(null); setCheckout(emptyCheckout); }} />}
+  </div>;
+}
+
+function AccountModal({ customer, wilayas, locale, t, onClose, onCustomer, onLogout }: { customer: Customer | null; wilayas: AlgeriaWilaya[]; locale: "fr" | "en" | "ar"; t: ReturnType<typeof useLocale>["t"]; onClose: () => void; onCustomer: (customer: Customer) => void; onLogout: () => void }) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [wilayaCode, setWilayaCode] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const communes = useMemo(() => wilayas.find((wilaya) => wilaya.code === wilayaCode)?.communes ?? [], [wilayaCode, wilayas]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setMessage("");
+    const form = new FormData(event.currentTarget);
+    const body = mode === "login" ? { phone: form.get("phone"), password: form.get("password") } : { firstName: form.get("firstName"), lastName: form.get("lastName"), phone: form.get("phone"), password: form.get("password"), wilayaCode, commune: form.get("commune"), address: form.get("address") };
+    try {
+      const response = await fetch(`/api/account/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) setMessage(value.error || t("accountError")); else onCustomer(value.customer as Customer);
+    } catch { setMessage(t("accountError")); } finally { setBusy(false); }
+  }
+
+  async function logout() { await fetch("/api/account/logout", { method: "POST" }).catch(() => undefined); onLogout(); }
+
+  return <div className="modal-backdrop"><section className="checkout-modal account-modal"><button className="icon-button modal-close" aria-label="Close" onClick={onClose}><Icon name="close" /></button><span className="eyebrow">Lovely Step</span><h2>{t("accountTitle")}</h2>{customer ? <div className="customer-profile"><span className="profile-icon"><Icon name="user" /></span><h3>{t("welcome")}, {customer.firstName} !</h3><p>{customer.phone}<br />{customer.commune}, {customer.wilayaName}</p><small>{t("savedAddress")}</small><button className="secondary-button" onClick={logout}>{t("logout")}</button></div> : <><div className="account-tabs"><button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setMessage(""); }}>{t("login")}</button><button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setMessage(""); }}>{t("register")}</button></div><form onSubmit={submit}>{mode === "register" && <><div className="form-row"><label>{t("firstName")}<input name="firstName" autoComplete="given-name" required minLength={2} /></label><label>{t("lastName")}<input name="lastName" autoComplete="family-name" required minLength={2} /></label></div></>}<label>{t("phone")}<input name="phone" type="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label><label>{t("password")}<input name="password" type="password" autoComplete={mode === "login" ? "current-password" : "new-password"} minLength={8} required /><small>{mode === "register" ? t("passwordHelp") : ""}</small></label>{mode === "register" && <><div className="form-row"><label>{t("wilaya")}<select value={wilayaCode} onChange={(event) => setWilayaCode(event.target.value)} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select name="commune" disabled={!wilayaCode} required><option value="">{t("choose")}</option>{communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div><label>{t("optionalAddress")}<input name="address" autoComplete="street-address" /></label></>}{message && <p className="form-error">{message}</p>}<button className="primary-button full" disabled={busy}>{busy ? t("sending") : mode === "login" ? t("login") : t("register")}</button></form></>}</section></div>;
 }
