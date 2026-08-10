@@ -4,6 +4,10 @@ import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
 import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { dispatchDeliveryOrder } from "@/lib/delivery-provider";
+import { sendPurchaseEvent } from "@/lib/meta/purchase";
+import { purchaseEventId } from "@/lib/meta/events";
+import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
+import { metaRequestContext } from "@/lib/meta/request";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -14,7 +18,7 @@ export async function POST(request: Request) {
   if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
   if (!await allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
-  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; address?: string; notes?: string; items?: RequestItem[] };
+  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; address?: string; notes?: string; items?: RequestItem[]; attribution?: unknown };
   const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
   const nameParts = submittedName.split(" ").filter(Boolean);
   const firstName = String(body.firstName ?? nameParts.shift() ?? "").trim().slice(0, 80);
@@ -83,7 +87,13 @@ export async function POST(request: Request) {
     const customer = await getCustomerSession();
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     after(() => dispatchDeliveryOrder(order));
-    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents }, { status: 201 });
+    // Tracking runs after the response and swallows its own failures: it must never affect the order.
+    const metaContext = metaRequestContext(request);
+    const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
+    after(() => persistOrderAttribution(order.id, attribution, metaContext));
+    after(() => sendPurchaseEvent(order, metaContext));
+    // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
+    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });
   } catch (error) {
     if (error instanceof StockUnavailableError) return NextResponse.json({ error: "Le stock vient de changer. Actualisez votre panier puis réessayez." }, { status: 409 });
     return NextResponse.json({ error: "La commande n’a pas pu être enregistrée." }, { status: 500 });

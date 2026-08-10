@@ -1,6 +1,9 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { normalizeAlgerianPhone, registerCustomer, validSameOrigin } from "@/lib/customer-auth";
+import { claimMetaCapiEvent, markMetaCapiResult } from "@/lib/db-postgres";
+import { sendServerEvent } from "@/lib/meta/capi";
+import { metaRequestContext } from "@/lib/meta/request";
 
 export const runtime = "nodejs";
 
@@ -20,7 +23,26 @@ export async function POST(request: Request) {
   }
   try {
     const customer = await registerCustomer({ firstName, lastName, phone, password, wilayaCode: wilaya.code, wilayaName: wilaya.nameFr, commune, address });
-    return NextResponse.json({ customer }, { status: 201 });
+    // One registration per customer id, so a resubmit cannot create a second conversion.
+    const metaEventId = `registration_${customer.id}`;
+    const metaContext = metaRequestContext(request);
+    after(async () => {
+      try {
+        if (!metaContext.consentGranted) return;
+        if (!await claimMetaCapiEvent(metaEventId, "CompleteRegistration", null)) return;
+        const result = await sendServerEvent({
+          eventName: "CompleteRegistration",
+          eventId: metaEventId,
+          eventSourceUrl: metaContext.eventSourceUrl,
+          userData: { phone: customer.phone, firstName: customer.firstName, lastName: customer.lastName, city: customer.commune, state: customer.wilayaName, country: "DZ", externalId: String(customer.id), fbp: metaContext.fbp, fbc: metaContext.fbc, clientIpAddress: metaContext.clientIpAddress, clientUserAgent: metaContext.clientUserAgent },
+          customData: { content_name: "customer_account", currency: "DZD" },
+        }, metaContext.consentGranted);
+        await markMetaCapiResult(metaEventId, result.status, result.error ?? null);
+      } catch {
+        // Registration already succeeded; tracking failures stay silent.
+      }
+    });
+    return NextResponse.json({ customer, metaEventId }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message.includes("UNIQUE")) return NextResponse.json({ error: "Un compte existe déjà avec ce numéro." }, { status: 409 });
     return NextResponse.json({ error: "Création du compte impossible." }, { status: 500 });

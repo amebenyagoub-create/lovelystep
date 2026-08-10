@@ -6,6 +6,8 @@ import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useStat
 import LanguageSwitcher from "./language-switcher";
 import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { trackMeta } from "@/lib/meta-pixel";
+import { contentId } from "@/lib/meta/events";
+import { loadAttribution } from "@/lib/meta/attribution";
 import { localizedAgeLabel } from "@/lib/product-size";
 import type { AlgeriaWilaya, Customer, DeliveryRate, DeliveryType, PublicProduct, StoreSettings } from "@/lib/types";
 import { useLocale } from "@/lib/use-locale";
@@ -84,19 +86,41 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       return found ? current.map((item) => item === found ? { ...item, quantity: Math.min(10, item.quantity + 1) } : item)
         : [...current, { productId: product.id, slug: product.slug, name: display.name, image, size, sizeLabel, color, quantity: 1, unitPriceCents: product.priceCents }];
     });
-    trackMeta("AddToCart", { content_ids: [product.slug], content_type: "product", value: product.priceCents / 100, currency: "DZD" });
+    trackMeta("AddToCart", { content_ids: [contentId(product.slug)], content_type: "product", content_name: display.name, content_category: product.category, contents: [{ id: contentId(product.slug), quantity: 1, item_price: product.priceCents / 100 }], value: product.priceCents / 100, currency: "DZD", num_items: 1 });
     setCartOpen(true);
   }
 
   const updateQuantity = (index: number, delta: number) => setCart((current) => current.flatMap((item, itemIndex) => itemIndex === index ? (item.quantity + delta <= 0 ? [] : [{ ...item, quantity: Math.min(10, item.quantity + delta) }]) : [item]));
 
+  function startCheckout() {
+    if (!cart.length) return;
+    trackMeta("InitiateCheckout", {
+      content_ids: cart.map((item) => contentId(item.slug)),
+      contents: cart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+      content_type: "product",
+      value: subtotal / 100,
+      currency: "DZD",
+      num_items: count,
+    });
+  }
+
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSubmitting(true); setMessage(""); setOrderSuccess(false);
     try {
-      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })) }) });
+      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.error || t("accountError")); return; }
-      trackMeta("Purchase", { content_ids: cart.map((item) => item.slug), contents: cart.map((item) => ({ id: item.slug, quantity: item.quantity })), content_type: "product", value: Number(data.totalCents || total) / 100, currency: "DZD" });
+      // data.metaEventId comes from the server, which already sent the same event via CAPI.
+      // Reusing it verbatim is what lets Meta collapse the two into one conversion.
+      trackMeta("Purchase", {
+        content_ids: cart.map((item) => contentId(item.slug)),
+        contents: cart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+        content_type: "product",
+        value: Number(data.totalCents || total) / 100,
+        currency: "DZD",
+        num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
+        order_id: String(data.orderNumber ?? ""),
+      }, data.metaEventId);
       setCart([]); setOrderSuccess(true); setMessage(locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. سنتصل بكم للتأكيد.` : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. We will call to confirm it.` : `Merci ! Votre commande ${data.orderNumber} est enregistrée. Nous vous appellerons pour la confirmer.`);
     } catch { setMessage(locale === "ar" ? "تعذر الاتصال بالخادم. حاولوا من جديد." : locale === "en" ? "The server could not be reached. Please try again." : "Connexion au serveur impossible. Vérifiez votre réseau puis réessayez."); }
     finally { setSubmitting(false); }
@@ -122,7 +146,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
     <footer><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={120} height={120} /><p>Tiny Steps, Big Love</p><small>© {new Date().getFullYear()} Lovely Step. {t("rights")}</small><Link href="/admin/login" className="admin-link">Administration</Link></footer>
 
     {menuOpen && <div className="mobile-menu"><button className="icon-button" aria-label="Close" onClick={() => setMenuOpen(false)}><Icon name="close" /></button><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={130} height={130} /><LanguageSwitcher locale={locale} onChange={setLocale} /><a href="#nouveautes" onClick={() => setMenuOpen(false)}>{t("new")}</a>{categories.map((category) => <a key={category} href={`#${category.toLowerCase()}`} onClick={() => setMenuOpen(false)}>{category}</a>)}</div>}
-    {cartOpen && <><button className="drawer-backdrop" aria-label="Close" onClick={() => setCartOpen(false)} /><aside className="cart-drawer" aria-label={t("cart")}><div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>{cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <><div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} unoptimized={item.image.startsWith("/api/media/")} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div><div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{locale === "ar" ? "حسب الولاية" : locale === "en" ? "Based on wilaya" : "Selon la wilaya"}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div></>}</aside></>}
+    {cartOpen && <><button className="drawer-backdrop" aria-label="Close" onClick={() => setCartOpen(false)} /><aside className="cart-drawer" aria-label={t("cart")}><div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>{cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <><div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} unoptimized={item.image.startsWith("/api/media/")} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div><div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{locale === "ar" ? "حسب الولاية" : locale === "en" ? "Based on wilaya" : "Selon la wilaya"}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div></>}</aside></>}
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
@@ -153,7 +177,11 @@ function AccountModal({ customer, wilayas, locale, t, onClose, onCustomer, onLog
     try {
       const response = await fetch(`/api/account/${mode}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const value = await response.json().catch(() => ({}));
-      if (!response.ok) setMessage(value.error || t("accountError")); else onCustomer(value.customer as Customer);
+      if (!response.ok) setMessage(value.error || t("accountError"));
+      else {
+        if (mode === "register") trackMeta("CompleteRegistration", { content_name: "customer_account", currency: "DZD" }, value.metaEventId);
+        onCustomer(value.customer as Customer);
+      }
     } catch { setMessage(t("accountError")); } finally { setBusy(false); }
   }
 

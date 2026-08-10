@@ -52,3 +52,11 @@
 .product-image,.gallery-main{aspect-ratio:4/5}
 .thumbnails button{height:102px}
 .size-row.age-size-row{grid-template-columns:1.4fr 1fr}
+
+.consent-banner{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(30,65,106,.1);padding:16px 22px;display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
+.consent-banner p{margin:0;font-size:13px;line-height:1.6;color:var(--ink);max-width:720px}
+.consent-actions{display:flex;gap:10px;flex-shrink:0}
+.consent-actions button{border-radius:999px;padding:11px 20px;font-size:13px;font-weight:800;border:1px solid var(--line);cursor:pointer}
+.consent-refuse{background:#fff;color:var(--navy)}
+.consent-accept{background:var(--navy);color:#fff;border-color:var(--navy)}
+@media(max-width:600px){.consent-banner{padding:14px 16px;gap:12px}.consent-actions{width:100%}.consent-actions button{flex:1}}

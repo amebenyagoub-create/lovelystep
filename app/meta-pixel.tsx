@@ -3,16 +3,30 @@
 import Script from "next/script";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { marketingAllowed } from "@/lib/meta/consent";
+import { useConsent } from "@/lib/meta/use-consent";
+import { randomEventId } from "@/lib/meta/events";
 
+/**
+ * Loads the Meta Pixel only once marketing consent is granted.
+ *
+ * The script tag is not rendered at all before consent, so no Meta request is made and no
+ * _fbp cookie is written. Revoking consent stops all further events (the already-loaded
+ * script cannot be unloaded, so `trackMeta` re-checks consent on every call).
+ */
 export default function MetaPixel({ pixelId }: { pixelId: string }) {
   const pathname = usePathname();
   const [ready, setReady] = useState(false);
+  const consent = useConsent();
+  const allowed = marketingAllowed(consent);
 
   useEffect(() => {
-    if (ready && window.fbq) window.fbq("track", "PageView");
-  }, [pathname, ready]);
+    if (!ready || !allowed || !window.fbq) return;
+    // A unique eventID per PageView keeps client-side navigations from collapsing into one event.
+    window.fbq("track", "PageView", {}, { eventID: randomEventId() });
+  }, [pathname, ready, allowed]);
 
-  if (!/^\d{5,30}$/.test(pixelId)) return null;
+  if (!/^\d{5,30}$/.test(pixelId) || !allowed) return null;
   return <Script id="lovelystep-meta-pixel" strategy="afterInteractive" onReady={() => {
     if (!window.fbq) return;
     if (window._lovelyStepMetaPixel !== pixelId) {

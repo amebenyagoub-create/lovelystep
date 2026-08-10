@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getProductBySlug, listProducts } from "@/lib/db-postgres";
 import ProductDetail from "./product-detail";
+import StoreTracking from "@/app/store-tracking";
 import { toPublicProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -16,5 +17,5 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const product = await getProductBySlug((await params).slug);
   if (!product) notFound();
   const related = (await listProducts()).filter((item) => item.id !== product.id).slice(0, 3);
-  return <ProductDetail product={toPublicProduct(product)} related={related.map(toPublicProduct)} />;
+  return <><ProductDetail product={toPublicProduct(product)} related={related.map(toPublicProduct)} /><StoreTracking /></>;
 }

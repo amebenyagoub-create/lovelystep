@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(node --check scripts/test-financial-foundation.mjs)",
+      "Bash(docker --version)",
+      "Bash(node --env-file=.env.local scripts/check-client-secrets.mjs)",
+      "Bash(echo \"--- exit: $? \\(1 = not found, good\\) ---\")",
+      "WebSearch",
+      "WebFetch(domain:developers.facebook.com)",
+      "WebFetch(domain:unalsoft.com)",
+      "Bash(node *)",
+      "Bash(cp lib/finance/kpis.ts /tmp/kpis.backup.ts)",
+      "Bash(sed -i 's/if \\(item.unitCostCents == null\\) return null;/if \\(item.unitCostCents == null\\) continue;/' lib/finance/kpis.ts)",
+      "Bash(python -c ' *)",
+      "Bash(PORT=3210 node --env-file=/tmp/preview.env node_modules/next/dist/bin/next dev -p 3210)",
+      "mcp__plugin_claude-mem_mcp-search__search",
+      "mcp__plugin_claude-mem_mcp-search__session_start_context",
+      "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/memory//**)",
+      "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/memory/**)",
+      "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/**)"
+    ]
+  }
+}

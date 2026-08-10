@@ -9,6 +9,7 @@ import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { localizedAgeLabel } from "@/lib/product-size";
 import type { PublicProduct } from "@/lib/types";
 import { trackMeta } from "@/lib/meta-pixel";
+import { contentId } from "@/lib/meta/events";
 import { useLocale } from "@/lib/use-locale";
 
 const CART_KEY = "lovelystep_cart";
@@ -38,8 +39,8 @@ export default function ProductDetail({ product, related }: { product: PublicPro
 
   useEffect(() => {
     void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: `/produits/${product.slug}`, productId: product.id }) }).catch(() => undefined);
-    trackMeta("ViewContent", { content_ids: [product.slug], content_type: "product", value: product.priceCents / 100, currency: "DZD" });
-  }, [product.id, product.priceCents, product.slug]);
+    trackMeta("ViewContent", { content_ids: [contentId(product.slug)], content_type: "product", content_name: product.name, content_category: product.category, value: product.priceCents / 100, currency: "DZD" });
+  }, [product.id, product.priceCents, product.slug, product.name, product.category]);
 
   function selectColor(color: string) {
     setSelectedColor(color);
@@ -61,7 +62,7 @@ export default function ProductDetail({ product, related }: { product: PublicPro
       cart.push({ productId: product.id, slug: product.slug, name: display.name, image: product.colorImages[selectedColor] || product.images[0] || "", size, sizeLabel: localizedAgeLabel({ label: size, age: selectedSize?.age }, locale), color: selectedColor || undefined, quantity, unitPriceCents: product.priceCents });
     }
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    trackMeta("AddToCart", { content_ids: [product.slug], content_type: "product", value: product.priceCents * quantity / 100, currency: "DZD" });
+    trackMeta("AddToCart", { content_ids: [contentId(product.slug)], content_type: "product", content_name: display.name, content_category: product.category, contents: [{ id: contentId(product.slug), quantity, item_price: product.priceCents / 100 }], value: product.priceCents * quantity / 100, currency: "DZD", num_items: quantity });
     router.push("/?bag=1");
   }
 

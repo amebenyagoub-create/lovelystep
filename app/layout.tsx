@@ -5,7 +5,9 @@ import "@fontsource/nunito/700.css";
 import "@fontsource/nunito/800.css";
 import "./globals.css";
 import "./admin-extra.css";
-import MetaPixel from "./meta-pixel";
+// Tracking lives in app/store-tracking.tsx, mounted by the public store pages only.
+// It must not be mounted here: the root layout wraps prerendered routes, so any database
+// read in it runs during `next build`.
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
@@ -24,6 +26,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const pixelId = process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "";
-  return <html lang="fr"><body>{children}<MetaPixel pixelId={pixelId} /></body></html>;
+  return <html lang="fr"><body>{children}</body></html>;
 }

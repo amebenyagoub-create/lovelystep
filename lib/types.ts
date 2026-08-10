@@ -110,6 +110,81 @@ export type Order = {
   subtotalCents: number;
   shippingCents: number;
   totalCents: number;
+  statusHistory: OrderStatusHistoryEntry[];
+  refunds: OrderRefund[];
+  deliveryCost: OrderDeliveryCost | null;
+  attribution: OrderAttribution | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OrderAttribution = {
+  orderId: number;
+  isMetaLastTouch: boolean;
+  isMetaFirstTouch: boolean;
+  utmSource: string | null;
+  utmMedium: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+  firstUtmCampaign: string | null;
+  landingPage: string | null;
+  referrer: string | null;
+  firstTouchAt: string;
+  lastTouchAt: string;
+};
+
+export type OrderStatusHistoryEntry = {
+  id: number;
+  orderId: number;
+  status: OrderStatus;
+  changedByAdminId: number | null;
+  reasonCode: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type OrderRefund = {
+  id: number;
+  orderId: number;
+  amountCents: number;
+  reason: string;
+  createdByAdminId: number | null;
+  createdAt: string;
+};
+
+export type OrderDeliveryCost = {
+  orderId: number;
+  carrierCostCents: number;
+  returnCostCents: number;
+  source: string;
+  updatedAt: string;
+};
+
+export type ProductCost = {
+  id: number;
+  productId: number;
+  costCents: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  createdAt: string;
+};
+
+export type ExpenseRecurrence = "one_time" | "recurring";
+export type ExpenseCostType = "fixed" | "variable";
+export type ExpenseAllocationMethod = "revenue_weighted" | "even_split";
+
+export type Expense = {
+  id: number;
+  category: string;
+  amountCents: number;
+  currency: string;
+  recurrence: ExpenseRecurrence;
+  costType: ExpenseCostType;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  allocationMethod: ExpenseAllocationMethod;
+  notes: string;
+  source: string;
   createdAt: string;
   updatedAt: string;
 };

@@ -368,6 +368,7 @@ function mapOrder(row: Row): Order {
     deliverySyncError: row.delivery_sync_error == null ? null : String(row.delivery_sync_error),
     notes: String(row.notes ?? ""), status: String(row.status) as OrderStatus, items: parseJson<OrderItem[]>(row.items_json, []),
     subtotalCents: Number(row.subtotal_cents), shippingCents: Number(row.shipping_cents), totalCents: Number(row.total_cents),
+    statusHistory: [], refunds: [], deliveryCost: null, attribution: null,
     createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
 }
 
