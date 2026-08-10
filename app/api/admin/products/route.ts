@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, deleteProduct, saveProduct } from "@/lib/db";
+import { audit, deleteProduct, saveProduct } from "@/lib/db-postgres";
 import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant } from "@/lib/types";
 
 const statuses: ProductStatus[] = ["draft", "published", "archived"];
@@ -110,7 +110,7 @@ export async function POST(request: Request) {
   }));
 
   try {
-    const product = saveProduct({
+    const product = await saveProduct({
       ...body,
       id,
       name,
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       testimonials,
       translations,
     });
-    audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
+    await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
     return NextResponse.json({ product });
   } catch (error) {
     const message = error instanceof Error && error.message.includes("UNIQUE") ? "Ce slug est déjà utilisé."
@@ -154,9 +154,9 @@ export async function DELETE(request: Request) {
   const id = Number(body.id);
   if (!Number.isInteger(id) || id < 1) return NextResponse.json({ error: "Produit invalide." }, { status: 400 });
   try {
-    const deleted = deleteProduct(id);
+    const deleted = await deleteProduct(id);
     if (!deleted) return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
-    audit(session.adminId, "product.delete", "product", String(id), { name: deleted.name, slug: deleted.slug });
+    await audit(session.adminId, "product.delete", "product", String(id), { name: deleted.name, slug: deleted.slug });
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "PRODUCT_HAS_RESERVED_ORDERS") {

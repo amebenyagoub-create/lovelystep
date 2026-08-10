@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { extractProduct, type AiProvider } from "@/lib/ai/product-extractor";
-import { audit, createImportJob, db, saveProduct, updateImportJob } from "@/lib/db";
+import { audit, createImportJob, saveProduct, updateImportJob, updateProductSourceData } from "@/lib/db-postgres";
 import { deleteProductImages, prepareEvidenceImages, saveProductImages } from "@/lib/uploads";
 import { frenchAgeLabel } from "@/lib/product-size";
 
@@ -21,8 +21,8 @@ export async function POST(request: Request) {
   const length = Number(request.headers.get("content-length") || 0);
   if (length > 100 * 1024 * 1024) return NextResponse.json({ error: "Envoi trop volumineux." }, { status: 413 });
 
-  const jobId = createImportJob(`upload://ai-${Date.now()}`);
-  updateImportJob(jobId, { status: "running" });
+  const jobId = await createImportJob(`upload://ai-${Date.now()}`);
+  await updateImportJob(jobId, { status: "running" });
   let gallery: string[] = [];
   let galleryCommitted = false;
   try {
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       const age = frenchAgeLabel(size);
       return [age.toLocaleLowerCase("fr"), { ...size, label: age, age }];
     })).values()];
-    const product = saveProduct({
+    const product = await saveProduct({
       name: extracted.frenchName,
       slug: slugify(extracted.frenchName),
       shortDescription: extracted.shortDescription,
@@ -65,14 +65,14 @@ export async function POST(request: Request) {
       seoDescription: extracted.shortDescription,
     });
     galleryCommitted = true;
-    db.prepare("UPDATE products SET source_data_json=? WHERE id=?").run(JSON.stringify({ provider: result.provider, fallbackReason: result.fallbackReason, extracted, evidenceFiles: evidence.map((item) => item.sourceName), importedAt: new Date().toISOString() }), product.id);
-    updateImportJob(jobId, { status: "draft_created", productId: product.id, extracted: { provider: result.provider, title: product.name, images: gallery.length, warnings: extracted.warnings } });
-    audit(session.adminId, "ai.import", "product", String(product.id), { provider: result.provider, screenshots: screenshots.length, images: gallery.length });
+    await updateProductSourceData(product.id, { provider: result.provider, fallbackReason: result.fallbackReason, extracted, evidenceFiles: evidence.map((item) => item.sourceName), importedAt: new Date().toISOString() });
+    await updateImportJob(jobId, { status: "draft_created", productId: product.id, extracted: { provider: result.provider, title: product.name, images: gallery.length, warnings: extracted.warnings } });
+    await audit(session.adminId, "ai.import", "product", String(product.id), { provider: result.provider, screenshots: screenshots.length, images: gallery.length });
     return NextResponse.json({ ok: true, jobId, provider: result.provider, fallbackReason: result.fallbackReason, product, warnings: extracted.warnings, supplierPriceRmb: extracted.supplierPriceRmb, moq: extracted.moq });
   } catch (error) {
     if (!galleryCommitted && gallery.length) await deleteProductImages(gallery);
     const message = error instanceof Error ? error.message : "Analyse impossible.";
-    updateImportJob(jobId, { status: "failed", error: message.slice(0, 800) });
+    await updateImportJob(jobId, { status: "failed", error: message.slice(0, 800) });
     return NextResponse.json({ error: message, jobId }, { status: 502 });
   }
 }

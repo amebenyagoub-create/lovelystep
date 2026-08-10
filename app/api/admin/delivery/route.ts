@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { findWilaya } from "@/lib/algeria";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, saveDeliveryRates } from "@/lib/db";
+import { audit, saveDeliveryRates } from "@/lib/db-postgres";
 import type { DeliveryRate } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     }
     rates.push({ wilayaCode: wilaya.code, wilayaNameFr: wilaya.nameFr, wilayaNameAr: wilaya.nameAr, homeCents, officeCents, active: rate.active !== false });
   }
-  const saved = saveDeliveryRates(rates);
-  audit(session.adminId, "delivery.rates.update", "settings", "delivery_rates", { count: rates.length });
+  const saved = await saveDeliveryRates(rates);
+  await audit(session.adminId, "delivery.rates.update", "settings", "delivery_rates", { count: rates.length });
   return NextResponse.json({ rates: saved });
 }

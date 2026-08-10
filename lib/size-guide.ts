@@ -3,7 +3,8 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { db, getProductById } from "./db";
+import { getProductById, updateProductSizeGuide } from "./db-postgres";
+import { objectStorageEnabled, readObject, storeObject } from "./object-storage";
 import { frenchAgeLabel } from "./product-size";
 
 const NAVY = "#1E416A";
@@ -14,9 +15,13 @@ function xml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
 
-async function storedImagePath(source: string): Promise<string | null> {
+async function storedImage(source: string): Promise<string | Buffer | null> {
   const filename = source.split("/").at(-1) || "";
   if (!/^[a-zA-Z0-9._-]+$/.test(filename)) return null;
+  if (objectStorageEnabled()) {
+    if (source.startsWith("/api/media/products/")) return await readObject(`originals/${filename}`) ?? await readObject(`products/${filename}`);
+    if (source.startsWith("/api/media/imports/")) return readObject(`imports/${filename}`);
+  }
   const candidates = source.startsWith("/api/media/products/") || source.startsWith("/uploads/products/")
     ? [path.join(process.cwd(), "public", "uploads", "originals", filename), path.join(process.cwd(), "public", "uploads", "products", filename)]
     : source.startsWith("/api/media/imports/") || source.startsWith("/uploads/imports/")
@@ -40,16 +45,16 @@ async function transparentLogo(logoPath: string): Promise<Buffer> {
 }
 
 export async function generateSizeGuide(productId: number): Promise<string> {
-  const product = getProductById(productId);
+  const product = await getProductById(productId);
   if (!product) throw new Error("Produit introuvable.");
   if (!product.sizes.length) throw new Error("Ajoutez au moins une taille avant de générer le guide.");
 
   const sourceImage = product.images.find((image) => image !== product.sizeGuideImage && !image.includes("/size-guides/"));
-  const imagePath = sourceImage ? await storedImagePath(sourceImage) : null;
-  if (!imagePath) throw new Error("Ajoutez une photo produit originale avant de générer le guide.");
+  const imageSource = sourceImage ? await storedImage(sourceImage) : null;
+  if (!imageSource) throw new Error("Ajoutez une photo produit originale avant de générer le guide.");
   let hero: Buffer;
   try {
-    hero = await sharp(imagePath, { failOn: "error" }).rotate().flatten({ background: CREAM })
+    hero = await sharp(imageSource, { failOn: "error" }).rotate().flatten({ background: CREAM })
       .resize(1080, 840, { fit: "contain", background: CREAM, withoutEnlargement: false })
       .jpeg({ quality: 92, mozjpeg: true }).toBuffer();
   } catch {
@@ -81,16 +86,19 @@ export async function generateSizeGuide(productId: number): Promise<string> {
 
   const logoPath = path.join(process.cwd(), "public", "brand", "lovelystep-logo.png");
   const logo = await transparentLogo(logoPath);
-  const outputDir = path.join(process.cwd(), "public", "generated", "size-guides");
-  await fs.mkdir(outputDir, { recursive: true });
   const filename = `${product.slug}-${Date.now().toString(36)}.png`;
   const publicPath = `/api/media/size-guides/${filename}`;
-  const outputPath = path.join(outputDir, filename);
-  await sharp({ create: { width: 1080, height: 1350, channels: 3, background: CREAM } })
+  const output = await sharp({ create: { width: 1080, height: 1350, channels: 3, background: CREAM } })
     .composite([{ input: hero, top: 0, left: 0 }, { input: overlay, top: 0, left: 0 }, { input: logo, top: 28, left: 34 }])
-    .png({ compressionLevel: 9 }).toFile(outputPath);
+    .png({ compressionLevel: 9 }).toBuffer();
+  if (objectStorageEnabled()) await storeObject(`size-guides/${filename}`, output, "image/png");
+  else {
+    const outputDir = path.join(process.cwd(), "public", "generated", "size-guides");
+    await fs.mkdir(outputDir, { recursive: true });
+    await fs.writeFile(path.join(outputDir, filename), output);
+  }
 
   const images = [...new Set([...product.images.filter((image) => image !== product.sizeGuideImage), publicPath])];
-  db.prepare("UPDATE products SET size_guide_image=?,images_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").run(publicPath, JSON.stringify(images), product.id);
+  await updateProductSizeGuide(product.id, publicPath, images);
   return publicPath;
 }

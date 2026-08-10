@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { objectStorageEnabled, readObject } from "@/lib/object-storage";
 
 export const runtime = "nodejs";
 
@@ -23,8 +24,10 @@ export async function GET(_request: Request, context: { params: Promise<{ kind: 
       : kind === "size-guides" ? path.join(process.cwd(), "public", "generated", "size-guides", name) : null;
   if (!filePath) return new NextResponse("Not found", { status: 404 });
   try {
-    const data = await fs.readFile(filePath);
-    return new NextResponse(data, {
+    const storageKey = kind === "size-guides" ? `size-guides/${name}` : `${kind}/${name}`;
+    const data = objectStorageEnabled() ? await readObject(storageKey) : await fs.readFile(filePath);
+    if (!data) return new NextResponse("Not found", { status: 404 });
+    return new NextResponse(new Uint8Array(data), {
       headers: {
         "content-type": contentType,
         "content-length": String(data.length),

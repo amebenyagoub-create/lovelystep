@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit } from "@/lib/db";
+import { audit } from "@/lib/db-postgres";
 import { saveProductImages } from "@/lib/uploads";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     const files = form.getAll("images").filter((value): value is File => value instanceof File);
     const images = await saveProductImages(files);
     if (!images.length) return NextResponse.json({ error: "Aucune image reçue." }, { status: 400 });
-    audit(session.adminId, "product.images.upload", "product", undefined, { count: images.length });
+    await audit(session.adminId, "product.images.upload", "product", undefined, { count: images.length });
     return NextResponse.json({ images });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Envoi impossible." }, { status: 400 });

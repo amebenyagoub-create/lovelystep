@@ -4,7 +4,8 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit } from "@/lib/db";
+import { audit } from "@/lib/db-postgres";
+import { objectStorageEnabled, storeObject } from "@/lib/object-storage";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -24,16 +25,20 @@ export async function POST(request: Request) {
     if (!(file instanceof File) || !ACCEPTED_TYPES.has(file.type) || file.size < 1 || file.size > MAX_BYTES) {
       return NextResponse.json({ error: "Choisissez une image JPG, PNG ou WebP de 15 Mo maximum." }, { status: 400 });
     }
-    const directory = path.join(process.cwd(), "public", "uploads", "storefront");
-    await fs.mkdir(directory, { recursive: true });
     const filename = `hero-${Date.now().toString(36)}-${crypto.randomBytes(6).toString("hex")}.webp`;
-    await sharp(Buffer.from(await file.arrayBuffer()), { failOn: "error", limitInputPixels: 80_000_000 })
+    const output = await sharp(Buffer.from(await file.arrayBuffer()), { failOn: "error", limitInputPixels: 80_000_000 })
       .rotate()
       .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
       .webp({ quality: 92, effort: 4 })
-      .toFile(path.join(directory, filename));
+      .toBuffer();
+    if (objectStorageEnabled()) await storeObject(`storefront/${filename}`, output, "image/webp");
+    else {
+      const directory = path.join(process.cwd(), "public", "uploads", "storefront");
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(path.join(directory, filename), output);
+    }
     const image = `/api/media/storefront/${filename}`;
-    audit(session.adminId, "storefront.hero.upload", "settings", "storefront", { image });
+    await audit(session.adminId, "storefront.hero.upload", "settings", "storefront", { image });
     return NextResponse.json({ image });
   } catch {
     return NextResponse.json({ error: "Cette image est illisible ou endommagée." }, { status: 400 });

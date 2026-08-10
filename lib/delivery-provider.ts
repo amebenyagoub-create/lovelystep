@@ -1,12 +1,12 @@
 import "server-only";
 
-import { getDeliveryIntegration, updateDeliverySync } from "./db";
+import { getDeliveryIntegration, updateDeliverySync } from "./db-postgres";
 import type { Order } from "./types";
 
 export async function dispatchDeliveryOrder(order: Order): Promise<void> {
-  const integration = getDeliveryIntegration();
+  const integration = await getDeliveryIntegration();
   if (!integration.enabled) return;
-  updateDeliverySync(order.id, { status: "pending" });
+  await updateDeliverySync(order.id, { status: "pending" });
   try {
     const base = new URL(integration.baseUrl);
     if (base.protocol !== "https:") throw new Error("L’URL du transporteur doit utiliser HTTPS.");
@@ -30,8 +30,8 @@ export async function dispatchDeliveryOrder(order: Order): Promise<void> {
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) throw new Error(String(payload.message || payload.error || `Erreur transporteur ${response.status}`));
     const externalId = String(payload.id || payload.trackingId || payload.tracking_number || payload.reference || "").slice(0, 160) || null;
-    updateDeliverySync(order.id, { status: "sent", externalId });
+    await updateDeliverySync(order.id, { status: "sent", externalId });
   } catch (error) {
-    updateDeliverySync(order.id, { status: "failed", error: error instanceof Error ? error.message.slice(0, 500) : "Erreur inconnue" });
+    await updateDeliverySync(order.id, { status: "failed", error: error instanceof Error ? error.message.slice(0, 500) : "Erreur inconnue" });
   }
 }

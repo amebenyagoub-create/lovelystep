@@ -1,25 +1,23 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listImportJobs, listOrders, listProducts } from "@/lib/db";
+import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listImportJobs, listOrders, listProducts } from "@/lib/db-postgres";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const session = await requireAdminApi();
   if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+  const [stats, products, orders, imports, storeSettings, deliveryRates, deliveryIntegration] = await Promise.all([
+    dashboardStats(), listProducts(true), listOrders(), listImportJobs(), getStoreSettings(), listDeliveryRates(), getDeliveryIntegration(),
+  ]);
   return NextResponse.json({
     admin: { email: session.email },
     csrfToken: session.csrfToken,
-    stats: dashboardStats(),
+    stats,
     meta: {
       pixelConfigured: /^\d{5,30}$/.test(process.env.NEXT_PUBLIC_META_PIXEL_ID ?? ""),
       insightsConfigured: Boolean(process.env.META_AD_ACCOUNT_ID && process.env.META_ACCESS_TOKEN),
     },
-    products: listProducts(true),
-    orders: listOrders(),
-    imports: listImportJobs(),
-    storeSettings: getStoreSettings(),
-    deliveryRates: listDeliveryRates(),
-    deliveryIntegration: getDeliveryIntegration(),
+    products, orders, imports, storeSettings, deliveryRates, deliveryIntegration,
   });
 }

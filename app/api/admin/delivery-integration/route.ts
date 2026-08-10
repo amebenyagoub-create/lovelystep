@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, saveDeliveryIntegration } from "@/lib/db";
+import { audit, saveDeliveryIntegration } from "@/lib/db-postgres";
 import type { DeliveryIntegration } from "@/lib/types";
 
 export async function POST(request: Request) {
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     try { if (new URL(integration.baseUrl).protocol !== "https:") throw new Error(); } catch { return NextResponse.json({ error: "L’URL API active doit être une adresse HTTPS valide." }, { status: 400 }); }
     if (!integration.providerName || !/^[A-Z][A-Z0-9_]{2,79}$/.test(integration.apiTokenEnv)) return NextResponse.json({ error: "Nom du transporteur ou variable du jeton invalide." }, { status: 400 });
   }
-  saveDeliveryIntegration(integration);
-  audit(session.adminId, "delivery.integration.update", "settings", "delivery_integration", { enabled: integration.enabled, providerName: integration.providerName });
+  await saveDeliveryIntegration(integration);
+  await audit(session.adminId, "delivery.integration.update", "settings", "delivery_integration", { enabled: integration.enabled, providerName: integration.providerName });
   return NextResponse.json({ integration });
 }

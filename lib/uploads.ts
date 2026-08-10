@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { removeImageBackgrounds } from "@/lib/background-removal";
+import { deleteObjects, objectStorageEnabled, storeObject } from "@/lib/object-storage";
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -92,9 +93,11 @@ export async function saveProductImages(files: File[]): Promise<string[]> {
   const outputDirectory = path.join(process.cwd(), "public", "uploads", "products");
   const originalDirectory = path.join(process.cwd(), "public", "uploads", "originals");
   const sourceDirectory = path.join(process.cwd(), "public", "uploads", "sources");
-  await fs.mkdir(outputDirectory, { recursive: true });
-  await fs.mkdir(originalDirectory, { recursive: true });
-  await fs.mkdir(sourceDirectory, { recursive: true });
+  if (!objectStorageEnabled()) {
+    await fs.mkdir(outputDirectory, { recursive: true });
+    await fs.mkdir(originalDirectory, { recursive: true });
+    await fs.mkdir(sourceDirectory, { recursive: true });
+  }
   const overlay = await getProductOverlay();
   const sourceImages: Buffer[] = [];
   for (const file of files) {
@@ -113,9 +116,13 @@ export async function saveProductImages(files: File[]): Promise<string[]> {
         .composite([{ input: product, blend: "over", left: PRODUCT_BOX.left, top: PRODUCT_BOX.top }])
         .webp({ quality: 94, effort: 4 })
         .toBuffer();
-      await sharp(sourceImages[index]).webp({ quality: 95, effort: 4 }).toFile(path.join(sourceDirectory, filename));
-      await fs.writeFile(path.join(originalDirectory, filename), original);
-      await sharp(original).composite([{ input: overlay, blend: "over" }]).webp({ quality: 94, effort: 4 }).toFile(path.join(outputDirectory, filename));
+      const source = await sharp(sourceImages[index]).webp({ quality: 95, effort: 4 }).toBuffer();
+      const branded = await sharp(original).composite([{ input: overlay, blend: "over" }]).webp({ quality: 94, effort: 4 }).toBuffer();
+      if (objectStorageEnabled()) {
+        await Promise.all([storeObject(`sources/${filename}`, source, "image/webp"), storeObject(`originals/${filename}`, original, "image/webp"), storeObject(`products/${filename}`, branded, "image/webp")]);
+      } else {
+        await Promise.all([fs.writeFile(path.join(sourceDirectory, filename), source), fs.writeFile(path.join(originalDirectory, filename), original), fs.writeFile(path.join(outputDirectory, filename), branded)]);
+      }
     }
   } catch (error) {
     await deleteProductImages(output);
@@ -129,6 +136,7 @@ export async function deleteProductImages(images: string[]): Promise<void> {
     const match = /^\/api\/media\/products\/([a-zA-Z0-9._-]+)$/.exec(image);
     return match ? [match[1]] : [];
   });
+  await deleteObjects(filenames.flatMap((filename) => [`products/${filename}`, `originals/${filename}`, `sources/${filename}`]));
   await Promise.all(filenames.flatMap((filename) => [
     fs.unlink(path.join(process.cwd(), "public", "uploads", "products", filename)).catch(() => undefined),
     fs.unlink(path.join(process.cwd(), "public", "uploads", "originals", filename)).catch(() => undefined),

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, DEFAULT_STORE_SETTINGS, saveStoreSettings } from "@/lib/db";
+import { audit, DEFAULT_STORE_SETTINGS, saveStoreSettings } from "@/lib/db-postgres";
 import type { LocalizedText, StoreSettings } from "@/lib/types";
 
 const validColor = (value: string) => /^#[0-9A-F]{6}$/i.test(value);
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     heroImage: heroImage || null,
     theme: { navy: theme.navy.toUpperCase(), coral: theme.coral.toUpperCase(), cream: theme.cream.toUpperCase(), sand: theme.sand.toUpperCase(), background: theme.background.toUpperCase() },
   };
-  saveStoreSettings(settings);
-  audit(session.adminId, "storefront.update", "settings", "storefront");
+  await saveStoreSettings(settings);
+  await audit(session.adminId, "storefront.update", "settings", "storefront");
   return NextResponse.json({ settings });
 }

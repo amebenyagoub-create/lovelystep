@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
-import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db";
+import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { dispatchDeliveryOrder } from "@/lib/delivery-provider";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   const length = Number(request.headers.get("content-length") || 0);
   if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
-  if (!allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
+  if (!await allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
   const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; address?: string; notes?: string; items?: RequestItem[] };
   const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
   const nameParts = submittedName.split(" ").filter(Boolean);
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
   const items: OrderItem[] = [];
   for (const item of requestedItems.values()) {
-    const product = getProductById(item.productId);
+    const product = await getProductById(item.productId);
     if (!product || product.status !== "published") return NextResponse.json({ error: "Un article n’est plus disponible." }, { status: 409 });
     const availableColors = product.colors.length ? product.colors : (product.color ? [product.color] : []);
     const color = item.color || availableColors[0] || undefined;
@@ -76,12 +76,12 @@ export async function POST(request: Request) {
   }
 
   const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
-  const deliveryRate = getDeliveryRate(wilayaCode);
+  const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
   const shippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
   try {
     const customer = await getCustomerSession();
-    const order = createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     after(() => dispatchDeliveryOrder(order));
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents }, { status: 201 });
   } catch (error) {

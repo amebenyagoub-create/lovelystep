@@ -1,10 +1,11 @@
 import Storefront from "./storefront";
 import { algeriaWilayas } from "@/lib/algeria";
-import { getStoreSettings, listDeliveryRates, listProducts } from "@/lib/db";
+import { getStoreSettings, listDeliveryRates, listProducts } from "@/lib/db-postgres";
 import { toPublicProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default function Page() {
-  return <Storefront products={listProducts().map(toPublicProduct)} settings={getStoreSettings()} wilayas={algeriaWilayas} deliveryRates={listDeliveryRates()} />;
+export default async function Page() {
+  const [products,settings,deliveryRates]=await Promise.all([listProducts(),getStoreSettings(),listDeliveryRates()]);
+  return <Storefront products={products.map(toPublicProduct)} settings={settings} wilayas={algeriaWilayas} deliveryRates={deliveryRates} />;
 }

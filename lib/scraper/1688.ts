@@ -3,7 +3,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Response } from "playwright";
-import { db, saveProduct } from "../db";
+import { saveProduct, updateProductSourceData } from "../db-postgres";
 
 const SOURCE_HOSTS = ["1688.com"];
 const IMAGE_HOSTS = ["1688.com", "alicdn.com", "tbcdn.cn", "tbcdn.com"];
@@ -144,9 +144,9 @@ export async function scrape1688Product(sourceValue: string, jobId: number): Pro
   } finally { await context.close(); }
 }
 
-export function createDraftFromScrape(sourceUrl: string, scraped: ScrapedProduct) {
+export async function createDraftFromScrape(sourceUrl: string, scraped: ScrapedProduct) {
   const numericPrice = Number((scraped.priceText.match(/[\d.,]+/)?.[0] ?? "0").replace(",", "."));
-  const product = saveProduct({
+  const product = await saveProduct({
     name: scraped.title || "Produit importé 1688",
     slug: `${slugify(scraped.title)}-${Date.now().toString(36).slice(-5)}`,
     shortDescription: "Brouillon importé depuis 1688 — à traduire et valider avant publication.",
@@ -155,6 +155,6 @@ export function createDraftFromScrape(sourceUrl: string, scraped: ScrapedProduct
     status: "draft", category: "À classer", sourceUrl,
     images: scraped.localImages, sizes: [], features: [],
   });
-  db.prepare("UPDATE products SET source_data_json=? WHERE id=?").run(JSON.stringify(scraped), product.id);
+  await updateProductSourceData(product.id, scraped);
   return product;
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit } from "@/lib/db";
+import { audit } from "@/lib/db-postgres";
 import { generateSizeGuide } from "@/lib/size-guide";
 
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!Number.isInteger(id)) return NextResponse.json({ error: "Produit invalide." }, { status: 400 });
   try {
     const image = await generateSizeGuide(id);
-    audit(session.adminId, "product.size_guide", "product", String(id));
+    await audit(session.adminId, "product.size_guide", "product", String(id));
     return NextResponse.json({ image });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Génération impossible." }, { status: 400 });

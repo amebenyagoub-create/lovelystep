@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { getProductById, recordVisit } from "@/lib/db";
+import { getProductById, recordVisit } from "@/lib/db-postgres";
 
 const COOKIE_NAME = "lovelystep_visitor";
 
@@ -11,11 +11,11 @@ export async function POST(request: NextRequest) {
   const visitPath = String(body.path ?? "").slice(0, 200);
   if (!/^\/(?:$|produits\/[a-z0-9-]+$)/.test(visitPath)) return NextResponse.json({ error: "Page invalide." }, { status: 400 });
   const requestedProductId = body.productId == null ? null : Number(body.productId);
-  const productId = requestedProductId && Number.isInteger(requestedProductId) && getProductById(requestedProductId) ? requestedProductId : null;
+  const productId = requestedProductId && Number.isInteger(requestedProductId) && await getProductById(requestedProductId) ? requestedProductId : null;
   const existing = request.cookies.get(COOKIE_NAME)?.value;
   const visitorToken = existing && /^[a-f0-9]{32}$/.test(existing) ? existing : crypto.randomBytes(16).toString("hex");
   const visitorHash = crypto.createHash("sha256").update(visitorToken).digest("hex");
-  recordVisit(visitorHash, visitPath, productId);
+  await recordVisit(visitorHash, visitPath, productId);
   const response = NextResponse.json({ ok: true });
   if (visitorToken !== existing) response.cookies.set(COOKIE_NAME, visitorToken, {
     httpOnly: true,

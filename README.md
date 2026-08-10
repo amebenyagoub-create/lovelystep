@@ -115,6 +115,31 @@ npm run test:store-features
 
 Avant une ouverture publique : configurez `NEXT_PUBLIC_SITE_URL=https://votre-domaine`, `COOKIE_SECURE=true`, un reverse proxy HTTPS, des sauvegardes chiffrées et un stockage d’images persistant. Pour plusieurs serveurs, remplacez SQLite par PostgreSQL et les fichiers locaux par un stockage objet compatible S3.
 
+## Production avec Supabase
+
+LovelyStep utilise PostgreSQL dès que `DATABASE_URL` est configurée. Dans Supabase, ouvrez **Connect**, choisissez **Session pooler** (port 5432) et placez cette URI dans Railway. Le mot de passe contenant des caractères spéciaux doit être encodé dans l’URI.
+
+Variables Railway requises :
+
+```env
+DATABASE_URL=postgresql://postgres.PROJECT:mot-de-passe@aws-0-REGION.pooler.supabase.com:5432/postgres
+DATABASE_POOL_SIZE=5
+NEXT_PUBLIC_SUPABASE_URL=https://PROJECT.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_...
+SUPABASE_STORAGE_BUCKET=product-media
+```
+
+La clé `SUPABASE_SECRET_KEY` est exclusivement serveur et ne doit jamais porter le préfixe `NEXT_PUBLIC_`. La clé publishable n’est pas nécessaire au fonctionnement actuel du store.
+
+Pour migrer les données et médias locaux avant le basculement :
+
+```powershell
+npm run db:migrate:supabase
+npm run media:migrate:supabase
+```
+
+Les scripts sont réexécutables : les lignes existantes sont conservées et les objets Storage sont mis à jour. Faites néanmoins une copie de `data/lovelystep.db` et des dossiers `public/uploads` / `public/generated` avant toute migration.
+
 Commandes de contrôle :
 
 ```bash
