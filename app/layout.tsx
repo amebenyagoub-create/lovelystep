@@ -11,6 +11,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
+  verification: {
+    other: {
+      "facebook-domain-verification": "kpaqmnfezw4yiq07hpy3fuyx4q2207",
+    },
+  },
   title: { default: "Lovely Step | Vêtements enfants", template: "%s | Lovely Step" },
   description: "Des vêtements doux pour enfants, commandés en quelques clics et payés à la livraison.",
   keywords: ["vêtements enfants", "mode enfant", "paiement à la livraison", "Lovely Step"],
