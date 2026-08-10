@@ -65,7 +65,16 @@ Pour un transporteur, configurez d’abord le connecteur dans le dashboard, puis
 DELIVERY_API_TOKEN=
 ```
 
-Le connecteur ne doit être activé qu’après adaptation du format de requête à la documentation officielle de la société sélectionnée.
+Pour remplir automatiquement les tarifs ZR Express, ajoutez également les deux variables serveur suivantes :
+
+```env
+ZREXPRESS_API_KEY=...
+ZREXPRESS_TENANT_ID=...
+```
+
+Dans **Administration → Livraison**, cliquez ensuite sur **Synchroniser ZR Express**. LovelyStep appelle l’endpoint officiel `GET /api/v1/delivery-pricing/rates`, associe les tarifs `home` et `pickup-point` aux wilayas et convertit les montants DZD dans son format interne.
+
+Le connecteur d’envoi des commandes ne doit être activé qu’après le test dédié du format colis ZR Express.
 
 Le référentiel des adresses provient du projet MIT [Algeria-Cities](https://github.com/ihahachi/Algeria-Cities).
 

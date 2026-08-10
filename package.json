@@ -21,6 +21,7 @@
     "db:migrate:supabase": "node --env-file=.env.local scripts/migrate-sqlite-to-postgres.mjs",
     "media:migrate:supabase": "node --env-file=.env.local scripts/migrate-media-to-supabase.mjs",
     "supabase:verify": "node --env-file=.env.local scripts/verify-supabase.mjs",
+    "zrexpress:test": "node --env-file=.env.local scripts/check-zrexpress.mjs",
     "1688:login": "node scripts/1688-login.mjs"
   },
   "dependencies": {
