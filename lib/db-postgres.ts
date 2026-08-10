@@ -613,6 +613,18 @@ export async function listDailySpend(since: string, until: string): Promise<Arra
   }));
 }
 
+/**
+ * Currency of the most recent recorded spend, i.e. the currency the ad account is billed in.
+ * Returns "" when no spend has been synced yet: unknown is reported as unknown, never guessed.
+ */
+export async function latestSpendCurrency(): Promise<string> {
+  const result = await rows(
+    `SELECT currency FROM meta_ads_insights_daily
+     WHERE level='account' AND currency <> '' ORDER BY date DESC LIMIT 1`,
+  );
+  return String(result[0]?.currency ?? "");
+}
+
 /** Meta's own attributed purchase value for a period, in the ad account currency. */
 export async function metaAttributedTotals(since: string, until: string): Promise<{ currency: string; purchaseValueMinor: number; purchases: number } | null> {
   const result = await rows(

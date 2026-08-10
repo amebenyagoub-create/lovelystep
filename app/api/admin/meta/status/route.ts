@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { isTrackingDisabledByAdmin, listRecentMetaEvents, listSyncState } from "@/lib/db-postgres";
+import { isTrackingDisabledByAdmin, latestSpendCurrency, listRecentMetaEvents, listSyncState } from "@/lib/db-postgres";
 import { metaStatus } from "@/lib/meta/config";
 import { catalogQualityReport } from "@/lib/meta/catalog";
 
@@ -12,11 +12,12 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
 
   const status = metaStatus();
-  const [syncState, events, catalog, adminDisabled] = await Promise.all([
+  const [syncState, events, catalog, adminDisabled, spendCurrency] = await Promise.all([
     listSyncState(),
     listRecentMetaEvents(50),
     catalogQualityReport().catch((error) => ({ error: error instanceof Error ? error.message.slice(0, 200) : "Rapport indisponible." })),
     isTrackingDisabledByAdmin().catch(() => false),
+    latestSpendCurrency().catch(() => ""),
   ]);
 
   // Pixel/CAPI coverage: how many tracked events actually reached both channels.
@@ -42,6 +43,9 @@ export async function GET() {
     syncState,
     coverage,
     catalog,
+    // Currency the ad account is billed in, taken from the last synced spend row.
+    // "" means no spend has been synced yet, so the admin picks the currency manually.
+    spendCurrency,
     // Already redacted at write time; no personal data can appear here.
     recentErrors: events.filter((event) => event.capiError).slice(0, 20).map((event) => ({ eventName: event.eventName, status: event.capiStatus, error: event.capiError, at: event.createdAt })),
   });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import FxRatesCard from "./fx-rates-card";
 
 type Status = {
   config: { trackingEnabled: boolean; adminDisabled: boolean; pixelConfigured: boolean; capiConfigured: boolean; graphApiVersion: string; testEventCodeActive: boolean; adAccountConfigured: boolean; catalogConfigured: boolean; businessConfigured: boolean };
@@ -8,6 +9,8 @@ type Status = {
   coverage: { total: number; pixelOnly: number; capiOnly: number; deduplicated: number; failed: number };
   catalog: { published?: number; synced?: number; failed?: number; neverSynced?: number; failures?: Array<{ retailerId: string; error: string }>; error?: string };
   recentErrors: Array<{ eventName: string; status: number | null; error: string | null; at: string }>;
+  /** Currency of the last synced spend; "" while nothing has been synced. */
+  spendCurrency: string;
 };
 type Check = { name: string; ok: boolean; detail: string };
 
@@ -88,6 +91,8 @@ export default function MetaPanel({ csrfToken, onNotice, onError }: { csrfToken:
       </div>
       {checks && <ul className="check-list">{checks.map((check) => <li key={check.name} className={check.ok ? "ok" : "failed"}><b>{check.name}</b><span>{check.detail}</span></li>)}</ul>}
     </section>
+
+    <FxRatesCard csrfToken={csrfToken} spendCurrency={status.spendCurrency ?? ""} onNotice={onNotice} onError={onError} />
 
     <div className="analytics-columns">
       <section className="admin-card">

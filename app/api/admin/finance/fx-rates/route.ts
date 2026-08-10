@@ -1,10 +1,30 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, upsertFxRate } from "@/lib/db-postgres";
+import { audit, listFxRates, upsertFxRate } from "@/lib/db-postgres";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Lists the recorded rates, most recent first, so the admin can see what is already covered.
+ * Gaps matter more than values here: a day without a rate makes that day's profit unavailable.
+ */
+export async function GET(request: Request) {
+  const session = await requireAdminApi();
+  if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
+
+  const url = new URL(request.url);
+  const requested = (url.searchParams.get("currency") ?? "USD").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(requested)) return NextResponse.json({ error: "Devise invalide." }, { status: 400 });
+
+  const rates = (await listFxRates([requested]))
+    .sort((left, right) => right.rateDate.localeCompare(left.rateDate))
+    .slice(0, 90);
+
+  return NextResponse.json({ currency: requested, rates });
+}
 
 /** Records the DZD value of one unit of a foreign currency for a given date. */
 export async function POST(request: Request) {
