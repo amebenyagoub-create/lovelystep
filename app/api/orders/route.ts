@@ -3,7 +3,6 @@ import { after } from "next/server";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
 import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
-import { dispatchDeliveryOrder } from "@/lib/delivery-provider";
 import { shippingAfterPromotion } from "@/lib/free-shipping";
 import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
@@ -89,7 +88,6 @@ export async function POST(request: Request) {
   try {
     const customer = await getCustomerSession();
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
-    after(() => dispatchDeliveryOrder(order));
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;

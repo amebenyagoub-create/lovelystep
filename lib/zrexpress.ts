@@ -2,7 +2,8 @@ import "server-only";
 
 import { findWilaya } from "./algeria";
 import { listDeliveryRates, saveDeliveryRates } from "./db-postgres";
-import type { DeliveryRate } from "./types";
+import { buildZrParcelPayload, selectCityTerritory, selectDistrictTerritory, type ZrTerritory } from "./zrexpress-contract";
+import type { DeliveryRate, Order } from "./types";
 
 const ZREXPRESS_BASE_URL = "https://api.zrexpress.app";
 
@@ -49,6 +50,86 @@ function errorMessage(payload: ZrRatesPayload, status: number): string {
   return typeof detail === "string" && detail.trim()
     ? `ZR Express : ${detail.trim().slice(0, 300)}`
     : `ZR Express a refusé la requête (${status}).`;
+}
+
+function validUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function zrRequest(path: string, init: RequestInit): Promise<Record<string, unknown>> {
+  const { apiKey, tenantId } = credentials();
+  const response = await fetch(`${ZREXPRESS_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+      "X-Api-Key": apiKey,
+      "X-Tenant": tenantId,
+      ...(init.headers ?? {}),
+    },
+    cache: "no-store",
+    signal: AbortSignal.timeout(20_000),
+  });
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) throw new Error(errorMessage(payload, response.status));
+  return payload;
+}
+
+function territory(value: unknown): ZrTerritory | null {
+  const item = record(value);
+  const id = String(item.id ?? "");
+  if (!validUuid(id)) return null;
+  const numericCode = Number(item.code);
+  return {
+    id,
+    code: Number.isFinite(numericCode) ? numericCode : null,
+    name: String(item.name ?? ""),
+    level: String(item.level ?? ""),
+    parentId: validUuid(String(item.parentId ?? "")) ? String(item.parentId) : null,
+  };
+}
+
+async function searchTerritories(keyword: string): Promise<ZrTerritory[]> {
+  const payload = await zrRequest("/api/v1/territories/search", {
+    method: "POST",
+    body: JSON.stringify({ keyword, pageSize: 100, pageNumber: 1, includeUnavailable: false }),
+  });
+  const nested = record(payload.data);
+  const values = Array.isArray(payload.items) ? payload.items : Array.isArray(nested.items) ? nested.items : [];
+  return values.map(territory).filter((value): value is ZrTerritory => value !== null);
+}
+
+async function resolveTerritories(order: Order) {
+  const district = selectDistrictTerritory(await searchTerritories(order.commune), order.commune);
+  if (!district) throw new Error(`ZR Express ne reconnaît pas la commune « ${order.commune} ».`);
+  let cityTerritoryId = district.parentId;
+  if (!cityTerritoryId) {
+    const city = selectCityTerritory(await searchTerritories(order.wilayaName), order.wilayaName, order.wilayaCode);
+    cityTerritoryId = city?.id ?? null;
+  }
+  if (!cityTerritoryId) throw new Error(`ZR Express ne reconnaît pas la wilaya « ${order.wilayaName} ».`);
+  return { cityTerritoryId, districtTerritoryId: district.id };
+}
+
+function defaultWeightKg() {
+  const value = Number(process.env.ZREXPRESS_DEFAULT_WEIGHT_KG ?? "1");
+  return Number.isFinite(value) && value > 0 && value <= 100 ? value : 1;
+}
+
+export async function createZrExpressParcel(order: Order): Promise<{ id: string }> {
+  const territoryIds = await resolveTerritories(order);
+  const payload = await zrRequest("/api/v1/parcels", {
+    method: "POST",
+    body: JSON.stringify(buildZrParcelPayload(order, territoryIds, defaultWeightKg())),
+  });
+  const nested = record(payload.data);
+  const id = String(payload.id ?? nested.id ?? "");
+  if (!validUuid(id)) throw new Error("ZR Express a créé le colis sans renvoyer un identifiant valide.");
+  return { id };
 }
 
 async function fetchRatesPayload(): Promise<ZrRatesPayload> {
