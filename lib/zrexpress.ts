@@ -2,7 +2,7 @@ import "server-only";
 
 import { findWilaya } from "./algeria";
 import { listDeliveryRates, saveDeliveryRates } from "./db-postgres";
-import { buildZrParcelPayload, selectCityTerritory, selectDistrictTerritory, type ZrTerritory } from "./zrexpress-contract";
+import { buildZrParcelPayload, selectCityTerritory, selectDistrictTerritory, selectPickupHub, zrApiErrorMessage, type ZrHub, type ZrTerritory } from "./zrexpress-contract";
 import type { DeliveryRate, Order } from "./types";
 
 const ZREXPRESS_BASE_URL = "https://api.zrexpress.app";
@@ -45,13 +45,6 @@ function credentials(): { apiKey: string; tenantId: string } {
   return { apiKey, tenantId };
 }
 
-function errorMessage(payload: ZrRatesPayload, status: number): string {
-  const detail = payload.detail ?? payload.message ?? payload.title;
-  return typeof detail === "string" && detail.trim()
-    ? `ZR Express : ${detail.trim().slice(0, 300)}`
-    : `ZR Express a refusé la requête (${status}).`;
-}
-
 function validUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -75,7 +68,7 @@ async function zrRequest(path: string, init: RequestInit): Promise<Record<string
     signal: AbortSignal.timeout(20_000),
   });
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) throw new Error(errorMessage(payload, response.status));
+  if (!response.ok) throw new Error(zrApiErrorMessage(payload, response.status));
   return payload;
 }
 
@@ -103,6 +96,35 @@ async function searchTerritories(keyword: string): Promise<ZrTerritory[]> {
   return values.map(territory).filter((value): value is ZrTerritory => value !== null);
 }
 
+function hub(value: unknown): ZrHub | null {
+  const item = record(value);
+  const id = String(item.id ?? "");
+  if (!validUuid(id)) return null;
+  const address = record(item.address);
+  const districtTerritoryId = String(address.districtTerritoryId ?? "");
+  return {
+    id,
+    name: String(item.name ?? ""),
+    isPickupPoint: item.isPickupPoint === true,
+    address: {
+      district: String(address.district ?? ""),
+      districtTerritoryId: validUuid(districtTerritoryId) ? districtTerritoryId : null,
+    },
+  };
+}
+
+async function resolvePickupHub(order: Order, districtTerritoryId: string) {
+  const payload = await zrRequest("/api/v1/hubs/search", {
+    method: "POST",
+    body: JSON.stringify({ keyword: order.commune, pageSize: 100, pageNumber: 1, includeServices: false }),
+  });
+  const nested = record(payload.data);
+  const values = Array.isArray(payload.items) ? payload.items : Array.isArray(nested.items) ? nested.items : [];
+  const selected = selectPickupHub(values.map(hub).filter((value): value is ZrHub => value !== null), districtTerritoryId, order.commune);
+  if (!selected) throw new Error(`Aucun bureau ZR Express unique n’a été trouvé pour « ${order.commune} ». Choisissez une livraison à domicile ou vérifiez la commune.`);
+  return selected.id;
+}
+
 async function resolveTerritories(order: Order) {
   const district = selectDistrictTerritory(await searchTerritories(order.commune), order.commune);
   if (!district) throw new Error(`ZR Express ne reconnaît pas la commune « ${order.commune} ».`);
@@ -122,9 +144,10 @@ function defaultWeightKg() {
 
 export async function createZrExpressParcel(order: Order): Promise<{ id: string }> {
   const territoryIds = await resolveTerritories(order);
+  const hubId = order.deliveryType === "office" ? await resolvePickupHub(order, territoryIds.districtTerritoryId) : undefined;
   const payload = await zrRequest("/api/v1/parcels", {
     method: "POST",
-    body: JSON.stringify(buildZrParcelPayload(order, territoryIds, defaultWeightKg())),
+    body: JSON.stringify(buildZrParcelPayload(order, territoryIds, defaultWeightKg(), crypto.randomUUID(), hubId)),
   });
   const nested = record(payload.data);
   const id = String(payload.id ?? nested.id ?? "");
@@ -145,7 +168,7 @@ async function fetchRatesPayload(): Promise<ZrRatesPayload> {
     signal: AbortSignal.timeout(20_000),
   });
   const payload = await response.json().catch(() => ({})) as ZrRatesPayload;
-  if (!response.ok) throw new Error(errorMessage(payload, response.status));
+  if (!response.ok) throw new Error(zrApiErrorMessage(payload, response.status));
   return payload;
 }
 
