@@ -4,6 +4,8 @@ import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
 import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { dispatchDeliveryOrder } from "@/lib/delivery-provider";
+import { shippingAfterPromotion } from "@/lib/free-shipping";
+import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
 import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
@@ -82,7 +84,8 @@ export async function POST(request: Request) {
   const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
-  const shippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
+  const regularShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
+  const shippingCents = shippingAfterPromotion(subtotalCents, regularShippingCents, getFreeShippingThresholdCents());
   try {
     const customer = await getCustomerSession();
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
