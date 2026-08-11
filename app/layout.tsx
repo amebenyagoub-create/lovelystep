@@ -9,10 +9,10 @@ import "./admin-extra.css";
 // It must not be mounted here: the root layout wraps prerendered routes, so any database
 // read in it runs during `next build`.
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+import { siteUrl } from "@/lib/site-url";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  metadataBase: new URL(siteUrl() || "http://localhost:3000"),
   verification: {
     other: {
       "facebook-domain-verification": "kpaqmnfezw4yiq07hpy3fuyx4q2207",

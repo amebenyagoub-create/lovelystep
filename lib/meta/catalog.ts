@@ -2,6 +2,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 import { listCatalogItems, listProducts, upsertCatalogItemState } from "../db-postgres";
+import { siteUrl } from "../site-url";
 import type { Product } from "../types";
 import { contentId } from "./events";
 import { graphPost } from "./graph";
@@ -17,10 +18,6 @@ import { graphPost } from "./graph";
 const MAX_BATCH = 1000; // Meta allows 5000, recommends 3000; smaller batches give clearer per-item errors.
 type BatchMethod = "CREATE" | "UPDATE" | "DELETE";
 type BatchRequest = { method: BatchMethod; data: Record<string, unknown> };
-
-function siteUrl(): string {
-  return (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/+$/, "");
-}
 
 function absoluteUrl(path: string): string {
   if (/^https?:\/\//.test(path)) return path;
@@ -107,7 +104,7 @@ async function sendBatch(catalogId: string, requests: BatchRequest[]): Promise<B
 export async function syncCatalog(full = false): Promise<CatalogSyncResult> {
   const catalogId = (process.env.META_CATALOG_ID ?? "").trim();
   if (!catalogId) throw new Error("META_CATALOG_ID est absent du serveur.");
-  if (!siteUrl()) throw new Error("NEXT_PUBLIC_SITE_URL est requis pour produire des liens absolus.");
+  if (!siteUrl()) throw new Error("SITE_URL est requis pour produire des liens absolus.");
 
   const [products, knownItems] = await Promise.all([listProducts(true), listCatalogItems()]);
   const known = new Map(knownItems.map((item) => [item.productId, item]));

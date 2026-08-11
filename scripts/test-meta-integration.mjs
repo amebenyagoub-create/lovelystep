@@ -233,4 +233,28 @@ await checkAsync("pixel id prefers the runtime variable over the build-time one"
   }
 });
 
+// --- site url resolution ------------------------------------------------------------------
+// Same build-time freeze as the pixel id, but this one decides catalog links and the secure
+// cookie flag, so a stale value is a broken catalog and a cookie sent in clear.
+await checkAsync("site url prefers the runtime variable and drops the trailing slash", async () => {
+  const { siteUrl, siteIsHttps } = await import("../lib/site-url.ts");
+  const saved = { runtime: process.env.SITE_URL, published: process.env.NEXT_PUBLIC_SITE_URL };
+  try {
+    process.env.SITE_URL = "https://lovelystep.example/";
+    process.env.NEXT_PUBLIC_SITE_URL = "http://stale.example";
+    assert.equal(siteUrl(), "https://lovelystep.example", "runtime variable must win, without trailing slash");
+    assert.equal(siteIsHttps(), true);
+
+    process.env.SITE_URL = "";
+    assert.equal(siteUrl(), "http://stale.example", "public name still works as a fallback");
+    assert.equal(siteIsHttps(), false, "a plain http origin must not enable the secure cookie flag");
+
+    process.env.NEXT_PUBLIC_SITE_URL = "";
+    assert.equal(siteUrl(), "", "no value anywhere yields an empty string, which callers reject");
+  } finally {
+    process.env.SITE_URL = saved.runtime ?? "";
+    process.env.NEXT_PUBLIC_SITE_URL = saved.published ?? "";
+  }
+});
+
 console.log(JSON.stringify({ ok: true, checks: checks.length, labels: checks.map((c) => c.label) }, null, 2));

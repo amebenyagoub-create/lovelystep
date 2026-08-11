@@ -4,6 +4,7 @@
 // import time. Run via: npm run test:csrf
 import assert from "node:assert/strict";
 import { validCsrf } from "../lib/auth.ts";
+import { validSameOrigin } from "../lib/customer-auth.ts";
 
 const checks = [];
 const check = (label, fn) => { fn(); checks.push(label); };
@@ -87,6 +88,22 @@ check("a token of a different length is refused without throwing", () => {
   assert.equal(validCsrf(new Request("http://localhost:3000/api/admin/products", {
     method: "POST", headers: { "x-csrf-token": "short" },
   }), session), false);
+});
+
+// validSameOrigin guards customer register / login / logout and had the identical bug: it has
+// no token to fall back on, so the origin check is the whole defence and must not over-refuse.
+check("customer routes accept a legitimate request behind the proxy", () => {
+  assert.equal(validSameOrigin(new Request("http://localhost:3000/api/account/login", {
+    method: "POST",
+    headers: { origin: "https://lovelystep.up.railway.app", "x-forwarded-host": "lovelystep.up.railway.app", "x-forwarded-proto": "https" },
+  })), true);
+});
+
+check("customer routes still refuse a foreign origin", () => {
+  assert.equal(validSameOrigin(new Request("http://localhost:3000/api/account/login", {
+    method: "POST",
+    headers: { origin: "https://evil.example", "x-forwarded-host": "lovelystep.up.railway.app", "x-forwarded-proto": "https" },
+  })), false);
 });
 
 console.log(JSON.stringify({ ok: true, checks: checks.length, labels: checks }, null, 2));

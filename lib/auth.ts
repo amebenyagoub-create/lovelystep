@@ -3,11 +3,12 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { deleteAdminSession, getAdminCredentialRecord, getAdminSessionRecord, hasAdminRecord, insertAdmin, insertAdminSession, insertLoginAttempt, isAdminLoginAllowed } from "./db-postgres";
+import { siteIsHttps } from "./site-url";
 
 const COOKIE_NAME = "lovelystep_admin_session";
 const SESSION_HOURS = 12;
 export type AdminSession = { adminId: number; email: string; csrfToken: string };
-function secureCookieEnabled():boolean{if(process.env.COOKIE_SECURE==="true")return true;if(process.env.COOKIE_SECURE==="false")return false;return process.env.NODE_ENV==="production"&&Boolean(process.env.NEXT_PUBLIC_SITE_URL?.startsWith("https://"));}
+export function secureCookieEnabled():boolean{if(process.env.COOKIE_SECURE==="true")return true;if(process.env.COOKIE_SECURE==="false")return false;return process.env.NODE_ENV==="production"&&siteIsHttps();}
 export function hashPassword(password:string):string{const salt=crypto.randomBytes(16);const hash=crypto.scryptSync(password,salt,64,{N:32768,r:8,p:1,maxmem:64*1024*1024});return`scrypt$32768$${salt.toString("base64url")}$${hash.toString("base64url")}`;}
 export function verifyPassword(password:string,encoded:string):boolean{const[algorithm,cost,saltValue,hashValue]=encoded.split("$");if(algorithm!=="scrypt"||!cost||!saltValue||!hashValue)return false;try{const expected=Buffer.from(hashValue,"base64url");const actual=crypto.scryptSync(password,Buffer.from(saltValue,"base64url"),expected.length,{N:Number(cost),r:8,p:1,maxmem:64*1024*1024});return expected.length===actual.length&&crypto.timingSafeEqual(expected,actual);}catch{return false;}}
 export async function hasAdmin():Promise<boolean>{return hasAdminRecord();}
@@ -33,5 +34,5 @@ export async function requireAdminApi():Promise<AdminSession|null>{return getAdm
  * against: a cross-site request can set neither these headers nor the x-csrf-token compared
  * just above, and the session cookie is already SameSite=strict.
  */
-function publicOrigin(request:Request):string{const host=request.headers.get("x-forwarded-host")?.split(",")[0].trim()||request.headers.get("host")?.trim();if(!host)return new URL(request.url).origin;const proto=request.headers.get("x-forwarded-proto")?.split(",")[0].trim()||new URL(request.url).protocol.replace(":","");return`${proto}://${host}`;}
+export function publicOrigin(request:Request):string{const host=request.headers.get("x-forwarded-host")?.split(",")[0].trim()||request.headers.get("host")?.trim();if(!host)return new URL(request.url).origin;const proto=request.headers.get("x-forwarded-proto")?.split(",")[0].trim()||new URL(request.url).protocol.replace(":","");return`${proto}://${host}`;}
 export function validCsrf(request:Request,session:AdminSession):boolean{const token=request.headers.get("x-csrf-token");if(!token||token.length!==session.csrfToken.length||!crypto.timingSafeEqual(Buffer.from(token),Buffer.from(session.csrfToken)))return false;const origin=request.headers.get("origin");return!origin||origin===publicOrigin(request);}
