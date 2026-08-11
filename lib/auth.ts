@@ -20,4 +20,18 @@ export async function destroySession():Promise<void>{const jar=await cookies();c
 export async function getAdminSession():Promise<AdminSession|null>{const token=(await cookies()).get(COOKIE_NAME)?.value;if(!token)return null;return getAdminSessionRecord(crypto.createHash("sha256").update(token).digest("hex"));}
 export async function requireAdminPage():Promise<AdminSession>{const session=await getAdminSession();if(!session)redirect("/admin/login");return session;}
 export async function requireAdminApi():Promise<AdminSession|null>{return getAdminSession();}
-export function validCsrf(request:Request,session:AdminSession):boolean{const token=request.headers.get("x-csrf-token");if(!token||token.length!==session.csrfToken.length||!crypto.timingSafeEqual(Buffer.from(token),Buffer.from(session.csrfToken)))return false;const origin=request.headers.get("origin");return!origin||origin===new URL(request.url).origin;}
+/**
+ * Origin of the request as the browser sees it.
+ *
+ * Next resolves `request.url` from the server's own bind hostname unless
+ * experimental.trustHostHeader is set — see route-module.js in next/dist/server/route-modules,
+ * which builds it as `${protocol}://${routerServerContext?.hostname || 'localhost'}`. Behind a
+ * TLS-terminating proxy that reads "http://localhost" while the browser sends the public
+ * origin, so a same-site request looks cross-site and every admin POST is refused.
+ *
+ * The forwarded pair is trusted here because it cannot be reached by the attack this guards
+ * against: a cross-site request can set neither these headers nor the x-csrf-token compared
+ * just above, and the session cookie is already SameSite=strict.
+ */
+function publicOrigin(request:Request):string{const host=request.headers.get("x-forwarded-host")?.split(",")[0].trim()||request.headers.get("host")?.trim();if(!host)return new URL(request.url).origin;const proto=request.headers.get("x-forwarded-proto")?.split(",")[0].trim()||new URL(request.url).protocol.replace(":","");return`${proto}://${host}`;}
+export function validCsrf(request:Request,session:AdminSession):boolean{const token=request.headers.get("x-csrf-token");if(!token||token.length!==session.csrfToken.length||!crypto.timingSafeEqual(Buffer.from(token),Buffer.from(session.csrfToken)))return false;const origin=request.headers.get("origin");return!origin||origin===publicOrigin(request);}
