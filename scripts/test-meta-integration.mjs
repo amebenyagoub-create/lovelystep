@@ -210,4 +210,27 @@ check("redaction strips secrets from an error before it is stored", () => {
   }
 });
 
+// --- pixel id resolution ------------------------------------------------------------------
+// NEXT_PUBLIC_* is frozen at build time, so a host that sets it after the build reads empty.
+// META_PIXEL_ID is the runtime source and must win; the public name stays a fallback.
+await checkAsync("pixel id prefers the runtime variable over the build-time one", async () => {
+  const { metaConfig } = await import("../lib/meta/config.ts");
+  const saved = { runtime: process.env.META_PIXEL_ID, published: process.env.NEXT_PUBLIC_META_PIXEL_ID };
+  try {
+    process.env.META_PIXEL_ID = "999888777666555";
+    process.env.NEXT_PUBLIC_META_PIXEL_ID = "123456789012345";
+    assert.equal(metaConfig().pixelId, "999888777666555", "runtime variable must win");
+    assert.equal(metaConfig().datasetId, "999888777666555", "dataset falls back to the resolved pixel");
+
+    process.env.META_PIXEL_ID = "";
+    assert.equal(metaConfig().pixelId, "123456789012345", "public name still works as a fallback");
+
+    process.env.NEXT_PUBLIC_META_PIXEL_ID = "";
+    assert.equal(metaConfig().enabled, false, "no pixel id anywhere must disable tracking, not crash");
+  } finally {
+    process.env.META_PIXEL_ID = saved.runtime ?? "";
+    process.env.NEXT_PUBLIC_META_PIXEL_ID = saved.published ?? "";
+  }
+});
+
 console.log(JSON.stringify({ ok: true, checks: checks.length, labels: checks.map((c) => c.label) }, null, 2));

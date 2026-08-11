@@ -35,7 +35,7 @@ const token = env.META_ACCESS_TOKEN ?? "";
 const version = env.META_GRAPH_API_VERSION || "v26.0";
 const adAccount = env.META_AD_ACCOUNT_ID ?? "";
 const catalogId = env.META_CATALOG_ID ?? "";
-const datasetId = env.META_DATASET_ID || env.NEXT_PUBLIC_META_PIXEL_ID || "";
+const datasetId = env.META_DATASET_ID || env.META_PIXEL_ID || env.NEXT_PUBLIC_META_PIXEL_ID || "";
 
 if (!token) {
   console.error("META_ACCESS_TOKEN est vide dans .env.local.");

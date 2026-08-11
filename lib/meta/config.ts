@@ -26,7 +26,12 @@ export type MetaConfig = {
 };
 
 export function metaConfig(): MetaConfig {
-  const pixelId = (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "").trim();
+  // META_PIXEL_ID is read at runtime; NEXT_PUBLIC_META_PIXEL_ID is inlined at `next build` and
+  // then frozen (see next/dist/docs/01-app/02-guides/environment-variables.md), so on a host
+  // where the variable is set after the build it reads empty forever. The public name stays as
+  // a fallback for existing deployments. Nothing client-side reads either one: MetaPixel takes
+  // the id as a prop, so the server can resolve it per request.
+  const pixelId = ((process.env.META_PIXEL_ID ?? "").trim() || (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "")).trim();
   // Meta's CAPI dataset id is the Pixel id for a standard web dataset; META_DATASET_ID overrides it.
   const datasetId = (process.env.META_DATASET_ID ?? "").trim() || pixelId;
   const accessToken = (process.env.META_ACCESS_TOKEN ?? "").trim();

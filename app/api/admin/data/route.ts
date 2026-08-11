@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
 import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listImportJobs, listOrders, listProducts } from "@/lib/db-postgres";
+import { metaStatus } from "@/lib/meta/config";
 import { getZrExpressStatus } from "@/lib/zrexpress";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export async function GET() {
     csrfToken: session.csrfToken,
     stats,
     meta: {
-      pixelConfigured: /^\d{5,30}$/.test(process.env.NEXT_PUBLIC_META_PIXEL_ID ?? ""),
+      pixelConfigured: metaStatus().pixelConfigured,
       insightsConfigured: Boolean(process.env.META_AD_ACCOUNT_ID && process.env.META_ACCESS_TOKEN),
     },
     zrExpress: getZrExpressStatus(),

@@ -1,4 +1,5 @@
 import { isTrackingDisabledByAdmin } from "@/lib/db-postgres";
+import { metaConfig } from "@/lib/meta/config";
 import AttributionTracker from "./attribution-tracker";
 import ConsentBanner from "./consent-banner";
 import MetaPixel from "./meta-pixel";
@@ -15,6 +16,6 @@ import MetaPixel from "./meta-pixel";
 export default async function StoreTracking() {
   // Admin kill switch: removes the browser Pixel as well as server-side events.
   const disabled = await isTrackingDisabledByAdmin().catch(() => false);
-  const pixelId = disabled ? "" : (process.env.NEXT_PUBLIC_META_PIXEL_ID ?? "");
+  const pixelId = disabled ? "" : metaConfig().pixelId;
   return <><MetaPixel pixelId={pixelId} /><AttributionTracker /><ConsentBanner /></>;
 }
