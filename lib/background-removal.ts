@@ -4,10 +4,17 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { removeConnectedSimpleBackground } from "./background-removal-fallback";
 
 const PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
 
-async function existingPython(): Promise<string> {
+async function removeWithIntegratedEngine(images: Buffer[]): Promise<Buffer[]> {
+  const results: Buffer[] = [];
+  for (const image of images) results.push(await removeConnectedSimpleBackground(image));
+  return results;
+}
+
+async function existingPython(): Promise<string | null> {
   const configured = process.env.BACKGROUND_REMOVAL_PYTHON?.trim();
   const localPython = path.join(
     process.cwd(),
@@ -25,9 +32,7 @@ async function existingPython(): Promise<string> {
     }
   }
 
-  throw new Error(
-    "La suppression d’arrière-plan n’est pas installée. Exécutez « npm run background:setup », puis relancez le serveur.",
-  );
+  return null;
 }
 
 function runBackgroundRemoval(python: string, manifestPath: string, modelDirectory: string): Promise<void> {
@@ -70,6 +75,7 @@ function runBackgroundRemoval(python: string, manifestPath: string, modelDirecto
 export async function removeImageBackgrounds(images: Buffer[]): Promise<Buffer[]> {
   if (!images.length) return [];
   const python = await existingPython();
+  if (!python) return removeWithIntegratedEngine(images);
   const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "lovelystep-bg-"));
   const modelDirectory = path.join(process.cwd(), "data", "background-removal-models");
   const manifestPath = path.join(temporaryDirectory, "manifest.json");
@@ -82,8 +88,13 @@ export async function removeImageBackgrounds(images: Buffer[]): Promise<Buffer[]
     }));
     await Promise.all(images.map((image, index) => fs.writeFile(jobs[index].input, image)));
     await fs.writeFile(manifestPath, JSON.stringify({ jobs }), "utf8");
-    await runBackgroundRemoval(python, manifestPath, modelDirectory);
-    return await Promise.all(jobs.map((job) => fs.readFile(job.output)));
+    try {
+      await runBackgroundRemoval(python, manifestPath, modelDirectory);
+      return await Promise.all(jobs.map((job) => fs.readFile(job.output)));
+    } catch (error) {
+      console.warn("Le moteur IA local de détourage est indisponible ; utilisation du détourage Node.js intégré.", error instanceof Error ? error.message : error);
+      return await removeWithIntegratedEngine(images);
+    }
   } finally {
     await fs.rm(temporaryDirectory, { recursive: true, force: true });
   }
