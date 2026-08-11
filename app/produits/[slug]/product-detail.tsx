@@ -68,7 +68,7 @@ export default function ProductDetail({ product, related }: { product: PublicPro
 
   return <div className="product-page" dir={dir}>
     <div className="announcement">{copy.announcement}</div>
-    <header className="product-header"><Link href="/" className="brand"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={112} height={112} priority /></Link><Link className="back-link" href="/">{copy.back}</Link><div className="header-actions"><LanguageSwitcher locale={locale} onChange={setLocale} /><Link className="header-cart" href="/?bag=1">{copy.cart}</Link></div></header>
+    <header className="product-header"><Link href="/" className="brand"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={112} height={112} priority /></Link><Link className="back-link" href="/">{copy.back}</Link><div className="header-actions"><LanguageSwitcher locale={locale} onChange={setLocale} /><Link className="header-cart" href="/?bag=1" aria-label={copy.cart}><span className="cart-label-long">{copy.cart}</span><span className="cart-label-short">{t("cart")}</span></Link></div></header>
     <main>
       <div className="breadcrumbs"><Link href="/">{copy.home}</Link><span>/</span><span>{product.category}</span><span>/</span><strong>{display.name}</strong></div>
       <section className="product-detail-grid">
