@@ -19,7 +19,6 @@ const promotionCopy = {
   fr: {
     remaining: (amount: string) => `Plus que ${amount} pour profiter de la livraison gratuite.`,
     unlocked: "Bravo, votre livraison est offerte !",
-    threshold: (amount: string) => `Livraison offerte dès ${amount}`,
     free: "Offerte",
     progress: "Progression vers la livraison gratuite",
     basedOnWilaya: "Selon la wilaya",
@@ -27,7 +26,6 @@ const promotionCopy = {
   en: {
     remaining: (amount: string) => `Add ${amount} more to unlock free delivery.`,
     unlocked: "Great, your delivery is free!",
-    threshold: (amount: string) => `Free delivery from ${amount}`,
     free: "Free",
     progress: "Progress towards free delivery",
     basedOnWilaya: "Based on wilaya",
@@ -35,7 +33,6 @@ const promotionCopy = {
   ar: {
     remaining: (amount: string) => `أضف ${amount} للاستفادة من التوصيل المجاني.`,
     unlocked: "رائع، التوصيل مجاني!",
-    threshold: (amount: string) => `التوصيل مجاني ابتداءً من ${amount}`,
     free: "مجاني",
     progress: "التقدم نحو التوصيل المجاني",
     basedOnWilaya: "حسب الولاية",
@@ -191,7 +188,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
         {cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <>
           <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} unoptimized={item.image.startsWith("/api/media/")} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div>
           <div className={`free-shipping-offer${freeShippingUnlocked ? " unlocked" : ""}`}>
-            <div className="free-shipping-message"><span><Icon name="truck" /></span><div><strong>{freeShippingUnlocked ? freeDeliveryText.unlocked : freeDeliveryText.remaining(money(freeShippingRemaining))}</strong><small>{freeDeliveryText.threshold(money(freeShippingThresholdCents))}</small></div></div>
+            <div className="free-shipping-message"><span><Icon name="truck" /></span><strong>{freeShippingUnlocked ? freeDeliveryText.unlocked : freeDeliveryText.remaining(money(freeShippingRemaining))}</strong></div>
             <div className="free-shipping-progress" role="progressbar" aria-label={freeDeliveryText.progress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={freeShippingProgress}><i style={{ "--promotion-progress": `${freeShippingProgress}%` } as CSSProperties} /></div>
           </div>
           <div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong className={freeShippingUnlocked ? "free-delivery-label" : ""}>{freeShippingUnlocked ? freeDeliveryText.free : freeDeliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
