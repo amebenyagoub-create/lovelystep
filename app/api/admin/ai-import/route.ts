@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { extractProduct, type AiProvider } from "@/lib/ai/product-extractor";
 import { audit, createImportJob, saveProduct, updateImportJob, updateProductSourceData } from "@/lib/db-postgres";
-import { deleteProductImages, prepareEvidenceImages, saveProductImages } from "@/lib/uploads";
+import { deleteProductImages, prepareEvidenceImages, saveManualProductImages, saveProductImages } from "@/lib/uploads";
 import { frenchAgeLabel } from "@/lib/product-size";
 
 export const runtime = "nodejs";
@@ -29,10 +29,13 @@ export async function POST(request: Request) {
     const form = await request.formData();
     const screenshots = form.getAll("screenshots").filter((value): value is File => value instanceof File);
     const productFiles = form.getAll("productImages").filter((value): value is File => value instanceof File);
+    const manualFiles = form.getAll("manualImages").filter((value): value is File => value instanceof File);
+    if (productFiles.length + manualFiles.length > 12) throw new Error("Maximum 12 images produit par import.");
     const requestedValue = String(form.get("provider") || "auto");
     const requested: "auto" | AiProvider = requestedValue === "gemini" || requestedValue === "groq" ? requestedValue : "auto";
     const evidence = await prepareEvidenceImages(screenshots);
     gallery = await saveProductImages(productFiles);
+    gallery.push(...await saveManualProductImages(manualFiles));
     const result = await extractProduct(evidence, requested);
     const extracted = result.product;
     const ageSizes = [...new Map(extracted.sizes.map((size) => {

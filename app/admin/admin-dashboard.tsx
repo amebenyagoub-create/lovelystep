@@ -26,6 +26,7 @@ export default function AdminDashboard() {
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [productImages, setProductImages] = useState<File[]>([]);
+  const [manualImages, setManualImages] = useState<File[]>([]);
   const [provider, setProvider] = useState<Provider>("auto");
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [checkingAi, setCheckingAi] = useState(false);
@@ -91,17 +92,19 @@ export default function AdminDashboard() {
   async function importFromScreenshots(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!data || screenshots.length === 0) { setError("Ajoutez au moins une capture d’écran 1688."); return; }
+    if (productImages.length + manualImages.length > 12) { setError("Ajoutez au maximum 12 photos produit au total."); return; }
     setBusy(true); setError(""); setNotice("");
     const form = new FormData();
     screenshots.forEach((file) => form.append("screenshots", file));
     productImages.forEach((file) => form.append("productImages", file));
+    manualImages.forEach((file) => form.append("manualImages", file));
     form.set("provider", provider);
     try {
       const response = await fetch("/api/admin/ai-import", { method: "POST", headers: { "x-csrf-token": data.csrfToken }, body: form });
       if (response.status === 401) { router.replace("/admin/login"); return; }
       const value = await response.json().catch(() => ({}));
       if (!response.ok) { setError(value.error || "Analyse impossible."); await load(); return; }
-      setScreenshots([]); setProductImages([]);
+      setScreenshots([]); setProductImages([]); setManualImages([]);
       await load();
       const warningCount = Array.isArray(value.warnings) ? value.warnings.length : 0;
       setNotice(`Brouillon créé avec ${value.provider === "gemini" ? "Gemini" : "Groq"}. ${warningCount} point(s) à vérifier.`);
@@ -125,7 +128,8 @@ export default function AdminDashboard() {
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div><OrdersTable orders={data.orders} onStatus={updateOrder} onDispatch={sendOrderToZr} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
       {tab === "import" && <section className="import-layout"><article className="admin-card importer ai-importer"><span className="import-icon">AI</span><h2>Créer un brouillon depuis des captures</h2><p>Ajoutez les photos originales du produit et des captures lisibles de la fiche 1688. Gemini analyse en premier ; Groq prend le relais automatiquement en cas d’échec.</p><div className="ai-provider-health"><div><strong>Connexion des services IA</strong><span>Testez la connexion avant un import pour détecter immédiatement un blocage réseau.</span></div><button type="button" onClick={() => void checkAiConnection()} disabled={checkingAi}>{checkingAi ? "Test en cours…" : "Tester la connexion"}</button>{aiStatus && <div className="ai-provider-results">{(["gemini", "groq"] as const).map((name) => <p className={aiStatus[name].ok ? "ready" : "failed"} key={name}><b>{name === "gemini" ? "Gemini" : "Groq"}</b><span>{aiStatus[name].ok ? "Prêt" : aiStatus[name].message}</span></p>)}</div>}</div><form className="ai-import-form" onSubmit={importFromScreenshots}>
-        <FileDropzone label="1. Photos originales du produit" help="Le fond sera supprimé, puis l’overlay Lovely Step sera appliqué automatiquement · JPG, PNG ou WebP · 12 maximum" files={productImages} onChange={setProductImages} max={12} />
+        <FileDropzone label="1. Photos à détourer automatiquement" help="Le fond sera supprimé, puis l’overlay Lovely Step sera appliqué automatiquement · JPG, PNG ou WebP" files={productImages} onChange={setProductImages} max={12} />
+        <FileDropzone label="Ou : images prêtes à publier, sans détourage" help="L’image et son arrière-plan seront conservés tels quels, sans suppression ni overlay automatique · 12 photos maximum au total" files={manualImages} onChange={setManualImages} max={12} />
         <FileDropzone label="2. Captures de la fiche 1688" help="Titre, prix fournisseur, caractéristiques, tailles et avis · 5 maximum" files={screenshots} onChange={setScreenshots} max={5} />
         <label className="provider-choice">Fournisseur IA<select value={provider} onChange={(event) => setProvider(event.target.value as Provider)}><option value="auto">Automatique — Gemini puis Groq</option><option value="gemini">Gemini uniquement</option><option value="groq">Groq uniquement</option></select></label>
         <button className="admin-primary ai-submit" disabled={busy || screenshots.length === 0}>{busy ? "Analyse et création du brouillon…" : "Analyser et créer le brouillon"}</button>

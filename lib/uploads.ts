@@ -131,6 +131,52 @@ export async function saveProductImages(files: File[]): Promise<string[]> {
   return output;
 }
 
+export async function saveManualProductImages(files: File[]): Promise<string[]> {
+  if (!files.length) return [];
+  if (files.length > 12) throw new Error("Maximum 12 images par envoi.");
+  if (files.reduce((total, file) => total + file.size, 0) > 80 * 1024 * 1024) throw new Error("Envoi trop volumineux. Maximum 80 Mo au total.");
+  const outputDirectory = path.join(process.cwd(), "public", "uploads", "products");
+  const originalDirectory = path.join(process.cwd(), "public", "uploads", "originals");
+  const sourceDirectory = path.join(process.cwd(), "public", "uploads", "sources");
+  if (!objectStorageEnabled()) {
+    await fs.mkdir(outputDirectory, { recursive: true });
+    await fs.mkdir(originalDirectory, { recursive: true });
+    await fs.mkdir(sourceDirectory, { recursive: true });
+  }
+  const output: string[] = [];
+  try {
+    for (const file of files) {
+      assertImage(file);
+      const uploaded = Buffer.from(await file.arrayBuffer());
+      const readyToPublish = await sharp(uploaded, { failOn: "error", limitInputPixels: 80_000_000 })
+        .rotate()
+        .resize(PRODUCT_WIDTH, PRODUCT_HEIGHT, { fit: "contain", position: "centre", background: CREAM, withoutEnlargement: false })
+        .flatten({ background: CREAM })
+        .webp({ quality: 94, effort: 4 })
+        .toBuffer();
+      const filename = `${Date.now().toString(36)}-${crypto.randomBytes(8).toString("hex")}.webp`;
+      output.push(`/api/media/products/${filename}`);
+      if (objectStorageEnabled()) {
+        await Promise.all([
+          storeObject(`sources/${filename}`, readyToPublish, "image/webp"),
+          storeObject(`originals/${filename}`, readyToPublish, "image/webp"),
+          storeObject(`products/${filename}`, readyToPublish, "image/webp"),
+        ]);
+      } else {
+        await Promise.all([
+          fs.writeFile(path.join(sourceDirectory, filename), readyToPublish),
+          fs.writeFile(path.join(originalDirectory, filename), readyToPublish),
+          fs.writeFile(path.join(outputDirectory, filename), readyToPublish),
+        ]);
+      }
+    }
+  } catch (error) {
+    await deleteProductImages(output);
+    throw error;
+  }
+  return output;
+}
+
 export async function deleteProductImages(images: string[]): Promise<void> {
   const filenames = images.flatMap((image) => {
     const match = /^\/api\/media\/products\/([a-zA-Z0-9._-]+)$/.exec(image);
