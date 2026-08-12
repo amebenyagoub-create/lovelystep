@@ -200,6 +200,10 @@
 .free-delivery-label,.free-shipping-fee{color:#24834b}
 .free-shipping-fee{display:inline-flex;align-items:center;gap:7px}
 .free-shipping-fee s{color:var(--muted);font-weight:600}
+.success-message .whatsapp-button{display:flex;background:#168b55;margin:0 auto 10px;max-width:360px}
+.success-message .whatsapp-button:hover{background:#0f7547}
+.success-message .whatsapp-help{display:block;color:var(--muted);font-size:11px;line-height:1.5;max-width:430px;margin:0 auto 18px}
+.success-message>.secondary-button{margin:auto}
 
 @media(max-width:800px){
   .free-shipping-offer{margin:0 14px 4px;padding:13px}

@@ -19,7 +19,20 @@
       "mcp__plugin_claude-mem_mcp-search__session_start_context",
       "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/memory//**)",
       "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/memory/**)",
-      "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/**)"
+      "Read(//c/Users/Amatek/.claude/projects/C--Users-Amatek-Desktop-lovelystep/**)",
+      "Bash(NEXT_PUBLIC_SITE_URL=https://EXEMPLE.dz node --env-file=.env.local --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs --input-type=module -e ' *)",
+      "Bash(git config *)",
+      "Bash(git push *)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(cp lib/auth.ts /c/Users/Amatek/AppData/Local/Temp/claude/C--Users-Amatek-Desktop-lovelystep/a0b2a74a-75e5-420a-afc8-7c985532b434/scratchpad/auth-fixed.ts)",
+      "Bash(git checkout *)",
+      "Bash(curl -s -o /dev/null -w \"GET / -> %{http_code} \\(redirections: %{num_redirects}, final: %{url_effective}\\)\\\\n\" -L https://lovelystep.com/)",
+      "Bash(curl -s -i -X POST https://lovelystep.com/api/account/login -H \"content-type: application/json\" -H \"Origin: https://lovelystep.com\" -d '{}')",
+      "Bash(curl -s -i -X POST https://lovelystep.com/api/account/login -H \"content-type: application/json\" -H \"Origin: https://evil.example\" -d '{}')",
+      "Bash(curl -s https://lovelystep.com/)",
+      "Bash(xargs -I{} echo \"occurrences de l ID du Pixel : {}\")",
+      "Bash(xargs -I{} echo \"occurrences fbevents : {}\")"
     ]
   }
 }

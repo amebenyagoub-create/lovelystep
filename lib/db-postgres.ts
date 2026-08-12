@@ -6,6 +6,7 @@ import path from "node:path";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { algeriaWilayas } from "./algeria";
 import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, StoreSettings } from "./types";
+import { normalizeWhatsAppPhone, type WhatsAppOrderAction } from "./whatsapp/intent";
 
 type Row = QueryResultRow & Record<string, unknown>;
 const connectionString = process.env.DATABASE_URL ?? "postgresql://invalid:invalid@127.0.0.1:1/invalid";
@@ -197,6 +198,149 @@ export type DeliveryDispatchClaim={status:"claimed";order:Order}|{status:"not_fo
 export async function claimOrderForDelivery(id:number):Promise<DeliveryDispatchClaim>{await ensureDatabase();const claimed=await pool.query("UPDATE orders SET delivery_sync_status='pending',delivery_sync_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('confirmed','preparing') AND delivery_external_id IS NULL AND delivery_sync_status IN ('not_configured','failed') RETURNING *",[id]);if(claimed.rows[0])return{status:"claimed",order:mapOrder(claimed.rows[0])};const existing=await rows("SELECT status,delivery_sync_status,delivery_external_id FROM orders WHERE id=$1",[id]);if(!existing[0])return{status:"not_found"};if(existing[0].delivery_external_id||existing[0].delivery_sync_status==="sent")return{status:"already_sent"};if(existing[0].delivery_sync_status==="pending")return{status:"pending"};return{status:"not_confirmed"};}
 const releasing=new Set<OrderStatus>(["refused","returned","cancelled"]);
 export async function updateOrderStatus(id:number,status:OrderStatus,adminId:number|null=null,reasonCode:string|null=null,note:string|null=null):Promise<"updated"|"not_found"|"stock_unavailable">{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");const result=await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE",[id]);if(!result.rows[0]){await client.query("ROLLBACK");return "not_found";}const order=mapOrder(result.rows[0]);const reserved=Boolean(result.rows[0].stock_reserved);const shouldReserve=!releasing.has(status);if(reserved&&!shouldReserve)await changeStock(client,order.items,1);if(!reserved&&shouldReserve)await changeStock(client,order.items,-1);await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3",[status,shouldReserve,id]);if(order.status!==status)await client.query("INSERT INTO order_status_history (order_id,status,changed_by_admin_id,reason_code,note) VALUES ($1,$2,$3,$4,$5)",[id,status,adminId,reasonCode,note]);await client.query("COMMIT");return "updated";}catch(error){await client.query("ROLLBACK");if(error instanceof StockUnavailableError)return "stock_unavailable";throw error;}finally{client.release();}}
+
+type WhatsAppOrderResultStatus =
+  | "present_confirmation"
+  | "present_reasons"
+  | "price_solution"
+  | "needs_human"
+  | "deferred"
+  | "confirmed"
+  | "cancelled"
+  | "already_confirmed"
+  | "already_cancelled"
+  | "closed";
+
+export type WhatsAppOrderActionResult =
+  | { status: "duplicate" }
+  | { status: "retry_later" }
+  | { status: "order_not_found" | "phone_mismatch" | "ambiguous_order"; action: WhatsAppOrderAction }
+  | { status: WhatsAppOrderResultStatus; action: WhatsAppOrderAction; order: Order };
+
+type WhatsAppOrderActionInput = { messageId: string; senderPhone: string; orderNumber: string | null; action: WhatsAppOrderAction };
+
+function whatsappResultWithOrder(status: string, action: WhatsAppOrderAction, row: Row): WhatsAppOrderActionResult {
+  return { status: status as WhatsAppOrderResultStatus, action, order: mapOrder(row) };
+}
+
+export async function processWhatsAppOrderAction(input: WhatsAppOrderActionInput): Promise<WhatsAppOrderActionResult> {
+  await ensureDatabase();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const inserted = await client.query(`INSERT INTO whatsapp_webhook_events
+      (message_id,sender_phone,action,order_number,result,outbound_claimed_at)
+      VALUES ($1,$2,$3,$4,'processing',NOW()) ON CONFLICT(message_id) DO NOTHING RETURNING message_id`,
+    [input.messageId, input.senderPhone, input.action, input.orderNumber]);
+
+    if (!inserted.rows[0]) {
+      const claimed = await client.query(`UPDATE whatsapp_webhook_events SET outbound_claimed_at=NOW()
+        WHERE message_id=$1 AND outbound_sent_at IS NULL
+          AND (outbound_claimed_at IS NULL OR outbound_claimed_at < NOW()-INTERVAL '2 minutes')
+        RETURNING *`, [input.messageId]);
+      const event = claimed.rows[0];
+      if (!event) {
+        const existing = await client.query("SELECT outbound_sent_at FROM whatsapp_webhook_events WHERE message_id=$1", [input.messageId]);
+        await client.query("COMMIT");
+        return { status: existing.rows[0]?.outbound_sent_at ? "duplicate" : "retry_later" };
+      }
+      if (event.result === "processing") {
+        await client.query("COMMIT");
+        return { status: "retry_later" };
+      }
+      if (["order_not_found", "phone_mismatch", "ambiguous_order"].includes(String(event.result))) {
+        await client.query("COMMIT");
+        return { status: String(event.result) as "order_not_found" | "phone_mismatch" | "ambiguous_order", action: String(event.action) as WhatsAppOrderAction };
+      }
+      const existingOrder = await client.query("SELECT * FROM orders WHERE id=$1", [event.order_id]);
+      await client.query("COMMIT");
+      return existingOrder.rows[0]
+        ? whatsappResultWithOrder(String(event.result), String(event.action) as WhatsAppOrderAction, existingOrder.rows[0])
+        : { status: "order_not_found", action: String(event.action) as WhatsAppOrderAction };
+    }
+
+    const senderPhone = normalizeWhatsAppPhone(input.senderPhone);
+    let orderRows: Row[] = [];
+    if (senderPhone && input.orderNumber) {
+      orderRows = (await client.query("SELECT * FROM orders WHERE UPPER(order_number)=UPPER($1) FOR UPDATE", [input.orderNumber])).rows;
+    } else if (senderPhone) {
+      orderRows = (await client.query(`SELECT * FROM orders WHERE phone=$1
+        AND status IN ('new','to_confirm','confirmed') AND created_at>=NOW()-INTERVAL '14 days'
+        ORDER BY created_at DESC LIMIT 2 FOR UPDATE`, [senderPhone])).rows;
+    }
+
+    let earlyStatus: "order_not_found" | "phone_mismatch" | "ambiguous_order" | null = null;
+    if (!senderPhone || orderRows.length === 0) earlyStatus = "order_not_found";
+    else if (!input.orderNumber && orderRows.length > 1) earlyStatus = "ambiguous_order";
+    else if (normalizeWhatsAppPhone(String(orderRows[0].phone)) !== senderPhone) earlyStatus = "phone_mismatch";
+    if (earlyStatus) {
+      await client.query("UPDATE whatsapp_webhook_events SET result=$1 WHERE message_id=$2", [earlyStatus, input.messageId]);
+      await client.query("COMMIT");
+      return { status: earlyStatus, action: input.action };
+    }
+
+    const row = orderRows[0];
+    const order = mapOrder(row);
+    const cancelledStatuses: OrderStatus[] = ["cancelled", "refused", "returned"];
+    const progressedStatuses: OrderStatus[] = ["confirmed", "preparing", "shipped", "delivered"];
+    let result: WhatsAppOrderResultStatus;
+
+    const transition = async (nextStatus: OrderStatus, reasonCode: string, note: string) => {
+      if (order.status === nextStatus) return;
+      if (nextStatus === "cancelled" && Boolean(row.stock_reserved)) await changeStock(client, order.items, 1);
+      await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3", [nextStatus, nextStatus === "cancelled" ? false : Boolean(row.stock_reserved), order.id]);
+      await client.query("INSERT INTO order_status_history (order_id,status,reason_code,note) VALUES ($1,$2,$3,$4)", [order.id, nextStatus, reasonCode, note]);
+    };
+
+    if (input.action === "confirm") {
+      if (cancelledStatuses.includes(order.status)) result = "closed";
+      else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+      else { await transition("confirmed", "whatsapp_customer_confirmed", "Confirmation gratuite initiée par le client sur WhatsApp"); result = "confirmed"; }
+    } else if (input.action === "cancel" || input.action === "reason_changed_mind") {
+      if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+      else if (["preparing", "shipped", "delivered"].includes(order.status)) result = "closed";
+      else { await transition("cancelled", "whatsapp_customer_cancelled", "Annulation demandée par le client sur WhatsApp"); result = "cancelled"; }
+    } else if (input.action === "reject") {
+      if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+      else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+      else { await transition("to_confirm", "whatsapp_rejected", "Le client demande une modification ou une annulation"); result = "present_reasons"; }
+    } else if (input.action === "reason_price") {
+      if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+      else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+      else { await transition("to_confirm", "whatsapp_reason_price", "Le client hésite à cause du prix"); result = "price_solution"; }
+    } else if (input.action === "reason_later") {
+      if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+      else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+      else { await transition("to_confirm", "whatsapp_reason_later", "Le client souhaite décider plus tard, sans rappel payant"); result = "deferred"; }
+    } else if (["reason_size", "reason_color", "reason_delivery", "reason_duplicate"].includes(input.action)) {
+      if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+      else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+      else { await transition("to_confirm", `whatsapp_${input.action}`, "Intervention humaine demandée depuis WhatsApp"); result = "needs_human"; }
+    } else if (cancelledStatuses.includes(order.status)) result = "already_cancelled";
+    else if (progressedStatuses.includes(order.status)) result = "already_confirmed";
+    else result = "present_confirmation";
+
+    const refreshed = await client.query("SELECT * FROM orders WHERE id=$1", [order.id]);
+    await client.query(`UPDATE whatsapp_webhook_events SET order_id=$1,order_number=$2,result=$3 WHERE message_id=$4`, [order.id, order.orderNumber, result, input.messageId]);
+    await client.query("COMMIT");
+    return whatsappResultWithOrder(result, input.action, refreshed.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function markWhatsAppEventSent(messageId: string, providerMessageId: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query("UPDATE whatsapp_webhook_events SET outbound_sent_at=NOW(),provider_message_id=$1 WHERE message_id=$2", [providerMessageId || null, messageId]);
+}
+
+export async function releaseWhatsAppEventDelivery(messageId: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query("UPDATE whatsapp_webhook_events SET outbound_claimed_at=NULL WHERE message_id=$1 AND outbound_sent_at IS NULL", [messageId]);
+}
 
 export async function allowOrderAttempt(ip:string):Promise<boolean>{await ensureDatabase();await pool.query("DELETE FROM order_attempts WHERE created_at < NOW()-INTERVAL '2 hours'");const result=await pool.query("SELECT count(*)::int count FROM order_attempts WHERE ip=$1 AND created_at>NOW()-INTERVAL '30 minutes'",[ip]);if(Number(result.rows[0].count)>=8)return false;await pool.query("INSERT INTO order_attempts (ip) VALUES ($1)",[ip]);return true;}
 export async function createImportJob(sourceUrl:string):Promise<number>{await ensureDatabase();const result=await pool.query("INSERT INTO import_jobs (source_url,status) VALUES ($1,'queued') RETURNING id",[sourceUrl]);return Number(result.rows[0].id);}

@@ -166,6 +166,18 @@ CREATE TABLE IF NOT EXISTS order_status_history (
   note TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS whatsapp_webhook_events (
+  message_id TEXT PRIMARY KEY,
+  sender_phone TEXT NOT NULL,
+  action TEXT NOT NULL,
+  order_number TEXT,
+  order_id BIGINT REFERENCES orders(id) ON DELETE SET NULL,
+  result TEXT NOT NULL DEFAULT 'processing',
+  outbound_claimed_at TIMESTAMPTZ,
+  outbound_sent_at TIMESTAMPTZ,
+  provider_message_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS product_costs (
   id BIGSERIAL PRIMARY KEY,
   product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -347,6 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_visits_created ON visits(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_expiry ON customer_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 CREATE INDEX IF NOT EXISTS idx_order_status_history_order ON order_status_history(order_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_webhook_events_order ON whatsapp_webhook_events(order_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_product_costs_lookup ON product_costs(product_id, effective_from DESC);
 CREATE INDEX IF NOT EXISTS idx_order_refunds_order ON order_refunds(order_id);
 CREATE INDEX IF NOT EXISTS idx_expenses_effective ON expenses(effective_from DESC);

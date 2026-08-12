@@ -57,6 +57,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [whatsappConfirmationUrl, setWhatsappConfirmationUrl] = useState("");
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [checkout, setCheckout] = useState<CheckoutState>(emptyCheckout);
   const cartLoaded = useRef(false);
@@ -135,9 +136,9 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
   }
 
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setSubmitting(true); setMessage(""); setOrderSuccess(false);
+    event.preventDefault(); setSubmitting(true); setMessage(""); setOrderSuccess(false); setWhatsappConfirmationUrl("");
     try {
-      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
+      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, locale, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.error || t("accountError")); return; }
       // data.metaEventId comes from the server, which already sent the same event via CAPI.
@@ -151,7 +152,10 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
         num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
         order_id: String(data.orderNumber ?? ""),
       }, data.metaEventId);
-      setCart([]); setOrderSuccess(true); setMessage(locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. سنتصل بكم للتأكيد.` : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. We will call to confirm it.` : `Merci ! Votre commande ${data.orderNumber} est enregistrée. Nous vous appellerons pour la confirmer.`);
+      const confirmationUrl = typeof data.whatsappConfirmationUrl === "string" ? data.whatsappConfirmationUrl : "";
+      setWhatsappConfirmationUrl(confirmationUrl); setCart([]); setOrderSuccess(true); setMessage(confirmationUrl
+        ? locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. أكّدوه الآن مجاناً عبر واتساب.` : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. Confirm it now on WhatsApp for free.` : `Merci ! Votre commande ${data.orderNumber} est enregistrée. Confirmez-la maintenant gratuitement sur WhatsApp.`
+        : locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. سيتصل بكم فريقنا للتأكيد.` : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. Our team will contact you to confirm it.` : `Merci ! Votre commande ${data.orderNumber} est enregistrée. Notre équipe vous contactera pour la confirmer.`);
     } catch { setMessage(locale === "ar" ? "تعذر الاتصال بالخادم. حاولوا من جديد." : locale === "en" ? "The server could not be reached. Please try again." : "Connexion au serveur impossible. Vérifiez votre réseau puis réessayez."); }
     finally { setSubmitting(false); }
   }
@@ -198,7 +202,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
-      {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
+      {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p>{whatsappConfirmationUrl && <><a className="primary-button whatsapp-button" href={whatsappConfirmationUrl} target="_blank" rel="noreferrer">{t("whatsappConfirm")}</a><small className="whatsapp-help">{t("whatsappConfirmHelp")}</small></>}<button className={whatsappConfirmationUrl ? "secondary-button" : "primary-button"} onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
         <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>

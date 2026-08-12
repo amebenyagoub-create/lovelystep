@@ -16,7 +16,7 @@ const dictionary = {
     finish: "Finaliser ma commande", fullName: "Nom et prénom", firstName: "Prénom", lastName: "Nom", phone: "Téléphone", wilaya: "Wilaya", commune: "Commune", choose: "Choisir…",
     deliveryMode: "Mode de livraison", home: "À domicile", office: "Au bureau du transporteur", address: "Adresse complète", optionalAddress: "Adresse (facultatif)", note: "Note pour la livraison (facultatif)",
     shippingPrice: "Frais de livraison", total: "Total à payer à la livraison", confirm: "Confirmer ma commande", sending: "Envoi…", finishButton: "Terminer",
-    orderHelp: "Notre équipe vous appellera pour confirmer les articles et la livraison.", login: "Connexion", register: "Créer un compte", password: "Mot de passe", passwordHelp: "8 caractères minimum",
+    orderHelp: "Après l’enregistrement, vous pourrez confirmer gratuitement sur WhatsApp.", whatsappConfirm: "Confirmer sur WhatsApp", whatsappConfirmHelp: "Envoyez le message prérempli : l’agent affichera ensuite votre commande et ses boutons de confirmation.", login: "Connexion", register: "Créer un compte", password: "Mot de passe", passwordHelp: "8 caractères minimum",
     welcome: "Bienvenue", savedAddress: "Votre adresse est enregistrée et préremplie à la commande.", logout: "Se déconnecter", accountTitle: "Espace client", accountError: "Action impossible.",
   },
   en: {
@@ -30,7 +30,7 @@ const dictionary = {
     finish: "Complete my order", fullName: "Full name", firstName: "First name", lastName: "Last name", phone: "Phone", wilaya: "Wilaya", commune: "Commune", choose: "Choose…",
     deliveryMode: "Delivery method", home: "Home delivery", office: "Carrier office", address: "Full address", optionalAddress: "Address (optional)", note: "Delivery note (optional)",
     shippingPrice: "Delivery fee", total: "Total due on delivery", confirm: "Confirm my order", sending: "Sending…", finishButton: "Done",
-    orderHelp: "Our team will call to confirm the items and delivery.", login: "Sign in", register: "Create account", password: "Password", passwordHelp: "At least 8 characters",
+    orderHelp: "After placing the order, you can confirm it on WhatsApp for free.", whatsappConfirm: "Confirm on WhatsApp", whatsappConfirmHelp: "Send the prefilled message; the agent will then show your order and confirmation buttons.", login: "Sign in", register: "Create account", password: "Password", passwordHelp: "At least 8 characters",
     welcome: "Welcome", savedAddress: "Your saved address will be prefilled at checkout.", logout: "Sign out", accountTitle: "Customer account", accountError: "Action failed.",
   },
   ar: {
@@ -44,7 +44,7 @@ const dictionary = {
     finish: "إتمام الطلب", fullName: "الاسم واللقب", firstName: "الاسم", lastName: "اللقب", phone: "الهاتف", wilaya: "الولاية", commune: "البلدية", choose: "اختاروا…",
     deliveryMode: "طريقة التوصيل", home: "إلى المنزل", office: "إلى مكتب شركة التوصيل", address: "العنوان الكامل", optionalAddress: "العنوان (اختياري)", note: "ملاحظة للتوصيل (اختياري)",
     shippingPrice: "سعر التوصيل", total: "المبلغ عند الاستلام", confirm: "تأكيد الطلب", sending: "جارٍ الإرسال…", finishButton: "إنهاء",
-    orderHelp: "سيتصل فريقنا لتأكيد المنتجات والتوصيل.", login: "تسجيل الدخول", register: "إنشاء حساب", password: "كلمة المرور", passwordHelp: "8 أحرف على الأقل",
+    orderHelp: "بعد تسجيل الطلب، يمكنكم تأكيده مجاناً عبر واتساب.", whatsappConfirm: "التأكيد عبر واتساب", whatsappConfirmHelp: "أرسلوا الرسالة الجاهزة، ثم سيعرض المساعد الطلب وأزرار التأكيد.", login: "تسجيل الدخول", register: "إنشاء حساب", password: "كلمة المرور", passwordHelp: "8 أحرف على الأقل",
     welcome: "مرحباً", savedAddress: "سيتم ملء عنوانكم المحفوظ تلقائياً عند الطلب.", logout: "تسجيل الخروج", accountTitle: "فضاء الزبون", accountError: "تعذر تنفيذ العملية.",
   },
 } as const;
