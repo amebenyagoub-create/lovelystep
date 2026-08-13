@@ -21,6 +21,10 @@ export const metadata: Metadata = {
   title: { default: "Lovely Step | Vêtements enfants", template: "%s | Lovely Step" },
   description: "Des vêtements doux pour enfants, commandés en quelques clics et payés à la livraison.",
   keywords: ["vêtements enfants", "mode enfant", "paiement à la livraison", "Lovely Step"],
+  icons: {
+    icon: [{ url: "/favicon.png", type: "image/png", sizes: "512x512" }],
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
   openGraph: { type: "website", siteName: "Lovely Step", title: "Tiny Steps, Big Love", description: "Vêtements enfants doux et pratiques avec paiement à la livraison.", images: [{ url: "/og.png", width: 1732, height: 909, alt: "Lovely Step" }] },
   twitter: { card: "summary_large_image", title: "Lovely Step — Tiny Steps, Big Love", description: "Vêtements enfants avec paiement à la livraison.", images: ["/og.png"] },
 };
