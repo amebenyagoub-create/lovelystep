@@ -97,6 +97,18 @@ async function sendBatch(catalogId: string, requests: BatchRequest[]): Promise<B
   });
 }
 
+/** Hard-deleted products are no longer returned by listProducts(), so remove them before/after
+ * deletion with the captured slug. No state row is written because its product FK is gone. */
+export async function removeProductFromCatalog(product: Product): Promise<{ deleted: boolean; handles: string[] }> {
+  const catalogId = (process.env.META_CATALOG_ID ?? "").trim();
+  if (!catalogId) throw new Error("META_CATALOG_ID est absent du serveur.");
+  const response = await sendBatch(catalogId, [{ method: "DELETE", data: { id: contentId(product.slug) } }]);
+  const validation = response.validation_status?.find((entry) => entry.retailer_id === contentId(product.slug));
+  const error = validation?.errors?.map((entry) => entry.message).filter(Boolean).join("; ");
+  if (error) throw new Error(error.slice(0, 300));
+  return { deleted: true, handles: response.handles ?? [] };
+}
+
 /**
  * Synchronizes products to the catalog.
  * `full = true` sends every published product; otherwise only products whose payload changed.

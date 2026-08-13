@@ -353,6 +353,21 @@ CREATE TABLE IF NOT EXISTS meta_catalog_items (
   UNIQUE(retailer_id)
 );
 
+-- One Facebook Page post per product. The row is claimed before calling Meta so two
+-- simultaneous saves cannot publish the same product twice. Failed/pending attempts are
+-- retried only through the explicit admin action, not every time a product is edited.
+CREATE TABLE IF NOT EXISTS meta_product_page_posts (
+  product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  page_id TEXT NOT NULL,
+  post_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count > 0),
+  last_error TEXT,
+  posted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Dated exchange rates. The Meta ad account is not billed in DZD, so spend must be converted
 -- with the rate that applied on the spend date. A missing rate is never treated as 1.0 or 0:
 -- the KPI layer reports the period as incomplete instead of inventing a number.
@@ -385,5 +400,6 @@ CREATE INDEX IF NOT EXISTS idx_meta_attribution_visitor ON meta_attribution(visi
 CREATE INDEX IF NOT EXISTS idx_meta_insights_date ON meta_ads_insights_daily(date DESC, level);
 CREATE INDEX IF NOT EXISTS idx_meta_insights_campaign ON meta_ads_insights_daily(campaign_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_meta_catalog_items_synced ON meta_catalog_items(last_synced_at);
+CREATE INDEX IF NOT EXISTS idx_meta_product_page_posts_status ON meta_product_page_posts(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_entity ON campaign_ai_analyses(entity_level, entity_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_expiry ON campaign_ai_analyses(expires_at);

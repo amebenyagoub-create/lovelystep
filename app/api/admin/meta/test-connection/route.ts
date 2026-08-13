@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit } from "@/lib/db-postgres";
 import { metaConfig } from "@/lib/meta/config";
-import { graphRequest, MetaTokenExpiredError } from "@/lib/meta/graph";
+import { graphRequest, graphRequestWithAccessToken, MetaTokenExpiredError } from "@/lib/meta/graph";
 
 export const runtime = "nodejs";
 
@@ -40,6 +40,20 @@ export async function POST(request: Request) {
   if (adAccount) await probe("ad_account", adAccount.startsWith("act_") ? adAccount : `act_${adAccount}`, { fields: "name,currency,timezone_name,account_status" });
   if (config.datasetId) await probe("dataset", config.datasetId, { fields: "name" });
   if (catalogId) await probe("catalog", catalogId, { fields: "name,product_count" });
+  const pageId = (process.env.META_PAGE_ID ?? "").trim();
+  const pageToken = (process.env.META_PAGE_ACCESS_TOKEN ?? "").trim();
+  if (pageId && pageToken) {
+    try {
+      const page = await graphRequestWithAccessToken<{ id?: string; name?: string }>(pageId, { fields: "id,name" }, pageToken);
+      checks.push({
+        name: "facebook_page",
+        ok: String(page.id ?? "") === pageId,
+        detail: `${String(page.name ?? page.id ?? "Page accessible").slice(0, 100)} — pages_manage_posts sera vérifiée au premier envoi.`,
+      });
+    } catch (error) {
+      checks.push({ name: "facebook_page", ok: false, detail: error instanceof MetaTokenExpiredError ? "Jeton Page expiré ou invalide." : (error instanceof Error ? error.message.slice(0, 200) : "Échec") });
+    }
+  }
 
   await audit(session.adminId, "meta.test_connection", "meta", "connection", { ok: checks.every((check) => check.ok) });
   return NextResponse.json({ ok: checks.every((check) => check.ok), graphApiVersion: config.graphApiVersion, checks });

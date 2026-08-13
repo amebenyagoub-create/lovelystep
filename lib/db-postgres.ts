@@ -813,6 +813,88 @@ export async function upsertCatalogItemState(productId: number, retailerId: stri
   );
 }
 
+// Facebook Page product-post ledger. Claiming is atomic so concurrent product saves cannot
+// create duplicate public posts. A failed attempt stays visible and can be retried explicitly.
+export type ProductPagePostState = {
+  productId: number;
+  pageId: string;
+  postId: string | null;
+  status: "pending" | "published" | "failed";
+  attemptCount: number;
+  lastError: string | null;
+  postedAt: string | null;
+  updatedAt: string;
+};
+
+function mapProductPagePost(row: Row): ProductPagePostState {
+  return {
+    productId: Number(row.product_id),
+    pageId: String(row.page_id),
+    postId: row.post_id == null ? null : String(row.post_id),
+    status: String(row.status) as ProductPagePostState["status"],
+    attemptCount: Number(row.attempt_count),
+    lastError: row.last_error == null ? null : String(row.last_error),
+    postedAt: row.posted_at == null ? null : timestamp(row.posted_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+export async function claimProductPagePost(productId: number, pageId: string, retryFailed = false): Promise<ProductPagePostState | null> {
+  await ensureDatabase();
+  if (!retryFailed) {
+    const result = await pool.query(
+      `INSERT INTO meta_product_page_posts (product_id,page_id)
+       VALUES ($1,$2) ON CONFLICT(product_id) DO NOTHING RETURNING *`,
+      [productId, pageId],
+    );
+    return result.rows[0] ? mapProductPagePost(result.rows[0]) : null;
+  }
+  const result = await pool.query(
+    `INSERT INTO meta_product_page_posts (product_id,page_id)
+     VALUES ($1,$2)
+     ON CONFLICT(product_id) DO UPDATE SET page_id=EXCLUDED.page_id,status='pending',
+       attempt_count=meta_product_page_posts.attempt_count+1,last_error=NULL,updated_at=NOW()
+     WHERE meta_product_page_posts.status='failed'
+     RETURNING *`,
+    [productId, pageId],
+  );
+  return result.rows[0] ? mapProductPagePost(result.rows[0]) : null;
+}
+
+export async function finishProductPagePost(productId: number, postId: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query(
+    `UPDATE meta_product_page_posts SET status='published',post_id=$2,last_error=NULL,
+       posted_at=NOW(),updated_at=NOW() WHERE product_id=$1 AND status='pending'`,
+    [productId, postId],
+  );
+}
+
+export async function failProductPagePost(productId: number, error: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query(
+    `UPDATE meta_product_page_posts SET status='failed',last_error=$2,updated_at=NOW()
+     WHERE product_id=$1 AND status='pending'`,
+    [productId, error.slice(0, 500)],
+  );
+}
+
+export async function productPagePostSummary(): Promise<{
+  published: number;
+  failed: number;
+  pending: number;
+  failures: Array<{ productId: number; error: string }>;
+}> {
+  const posts = (await rows("SELECT * FROM meta_product_page_posts ORDER BY updated_at DESC")).map(mapProductPagePost);
+  return {
+    published: posts.filter((post) => post.status === "published").length,
+    failed: posts.filter((post) => post.status === "failed").length,
+    pending: posts.filter((post) => post.status === "pending").length,
+    failures: posts.filter((post) => post.status === "failed" && post.lastError).slice(0, 8)
+      .map((post) => ({ productId: post.productId, error: post.lastError ?? "Unknown error" })),
+  };
+}
+
 // Dated exchange rates for ad-spend conversion.
 export type FxRate = { rateDate: string; currency: string; dzdPerUnit: number; source: string };
 export async function listFxRates(currencies: string[]): Promise<FxRate[]> {

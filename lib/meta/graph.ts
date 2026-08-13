@@ -29,11 +29,11 @@ function graphUrl(path: string, params: Record<string, string>): string {
   return url.toString();
 }
 
-async function requestOnce<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestOnce<T>(url: string, init?: RequestInit, accessToken?: string): Promise<T> {
   const config = metaConfig();
   const response = await fetch(url, {
     ...init,
-    headers: { accept: "application/json", authorization: `Bearer ${config.accessToken}`, ...(init?.headers ?? {}) },
+    headers: { accept: "application/json", authorization: `Bearer ${accessToken ?? config.accessToken}`, ...(init?.headers ?? {}) },
     cache: "no-store",
     signal: AbortSignal.timeout(60_000),
   });
@@ -47,12 +47,12 @@ async function requestOnce<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /** Retries only throttling and transient transport failures, with exponential backoff. */
-export async function graphRequest<T>(path: string, params: Record<string, string> = {}, init?: RequestInit, attempts = 4): Promise<T> {
+export async function graphRequest<T>(path: string, params: Record<string, string> = {}, init?: RequestInit, attempts = 4, accessToken?: string): Promise<T> {
   const url = init?.method === "POST" ? graphUrl(path, {}) : graphUrl(path, params);
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await requestOnce<T>(url, init);
+      return await requestOnce<T>(url, init, accessToken);
     } catch (error) {
       lastError = error;
       // An expired token will never recover by retrying.
@@ -107,4 +107,16 @@ export async function graphPaginate<T>(path: string, params: Record<string, stri
 
 export async function graphPost<T>(path: string, body: unknown): Promise<T> {
   return graphRequest<T>(path, {}, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+/** Page publishing uses a Page Access Token, kept separate from the Ads/Catalog token. */
+export async function graphPostWithAccessToken<T>(path: string, body: unknown, accessToken: string, attempts = 1): Promise<T> {
+  // A Page POST is a public side effect. Without a documented idempotency key, retrying after
+  // an ambiguous timeout can create a duplicate post even when the first request succeeded.
+  return graphRequest<T>(path, {}, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, attempts, accessToken);
+}
+
+/** Read-only Page probes also need the dedicated Page Access Token. */
+export async function graphRequestWithAccessToken<T>(path: string, params: Record<string, string>, accessToken: string): Promise<T> {
+  return graphRequest<T>(path, params, undefined, 4, accessToken);
 }

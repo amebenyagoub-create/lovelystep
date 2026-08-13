@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
-import { audit, deleteProduct, saveProduct } from "@/lib/db-postgres";
+import { audit, deleteProduct, getProductById, saveProduct } from "@/lib/db-postgres";
+import { productMetaAutomationPlan, runDeletedProductMetaAutomation, runProductMetaAutomation } from "@/lib/meta/product-automation";
 import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant } from "@/lib/types";
 
 const statuses: ProductStatus[] = ["draft", "published", "archived"];
@@ -110,6 +111,7 @@ export async function POST(request: Request) {
   }));
 
   try {
+    const previous = id ? await getProductById(id) : null;
     const product = await saveProduct({
       ...body,
       id,
@@ -137,7 +139,11 @@ export async function POST(request: Request) {
       translations,
     });
     await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
-    return NextResponse.json({ product });
+    const metaAutomation = productMetaAutomationPlan(previous, product);
+    if (metaAutomation.catalog || metaAutomation.pagePost) {
+      after(() => runProductMetaAutomation(previous, product));
+    }
+    return NextResponse.json({ product, metaAutomation });
   } catch (error) {
     const message = error instanceof Error && error.message.includes("UNIQUE") ? "Ce slug est déjà utilisé."
       : error instanceof Error && error.message === "PRODUCT_NOT_FOUND" ? "Produit introuvable."
@@ -157,6 +163,9 @@ export async function DELETE(request: Request) {
     const deleted = await deleteProduct(id);
     if (!deleted) return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
     await audit(session.adminId, "product.delete", "product", String(id), { name: deleted.name, slug: deleted.slug });
+    if (process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true") {
+      after(() => runDeletedProductMetaAutomation(deleted));
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof Error && error.message === "PRODUCT_HAS_RESERVED_ORDERS") {

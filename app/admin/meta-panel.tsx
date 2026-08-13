@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import FxRatesCard from "./fx-rates-card";
 
 type Status = {
-  config: { trackingEnabled: boolean; adminDisabled: boolean; pixelConfigured: boolean; capiConfigured: boolean; graphApiVersion: string; testEventCodeActive: boolean; adAccountConfigured: boolean; catalogConfigured: boolean; businessConfigured: boolean };
+  config: { trackingEnabled: boolean; adminDisabled: boolean; pixelConfigured: boolean; capiConfigured: boolean; graphApiVersion: string; testEventCodeActive: boolean; adAccountConfigured: boolean; catalogConfigured: boolean; businessConfigured: boolean; autoCatalogSyncEnabled: boolean; pagePosting: { enabled: boolean; pageConfigured: boolean; tokenConfigured: boolean; ready: boolean } };
   syncState: Array<{ syncKey: string; lastRunAt: string | null; lastSuccessAt: string | null; lastError: string | null }>;
   coverage: { total: number; pixelOnly: number; capiOnly: number; deduplicated: number; failed: number };
   catalog: { published?: number; synced?: number; failed?: number; neverSynced?: number; failures?: Array<{ retailerId: string; error: string }>; error?: string };
+  pagePosts: { published: number; failed: number; pending: number; failures: Array<{ productId: number; error: string }>; error?: string };
   recentErrors: Array<{ eventName: string; status: number | null; error: string | null; at: string }>;
   /** Currency of the last synced spend; "" while nothing has been synced. */
   spendCurrency: string;
@@ -69,6 +70,7 @@ export default function MetaPanel({ csrfToken, onNotice, onError }: { csrfToken:
           ["Compte publicitaire", config.adAccountConfigured],
           ["Catalogue produit", config.catalogConfigured],
           ["Business Portfolio", config.businessConfigured],
+          ["Page Facebook", config.pagePosting.ready],
         ].map(([label, ok]) => (
           <div key={String(label)} className="asset-item">
             <span className={`dot ${ok ? "ok" : "off"}`} aria-hidden="true" />
@@ -78,6 +80,7 @@ export default function MetaPanel({ csrfToken, onNotice, onError }: { csrfToken:
         <div className="asset-item"><span className="dot ok" aria-hidden="true" /><div><strong>Graph API</strong><small>{config.graphApiVersion}</small></div></div>
       </div>
       {config.testEventCodeActive && <p className="metric-note warning-note">Un code Test Events est actif : les événements ne comptent pas comme conversions réelles.</p>}
+      <p className="metric-note">Synchronisation automatique du catalogue : <b>{config.autoCatalogSyncEnabled ? "active" : "inactive"}</b> · Publication Facebook à la première mise en ligne : <b>{config.pagePosting.enabled ? (config.pagePosting.ready ? "prête" : "configuration incomplète") : "inactive"}</b>.</p>
       <div className="meta-actions">
         <button type="button" disabled={busy !== ""} onClick={async () => { const value = await post("/api/admin/meta/test-connection", {}, "test"); if (value) { setChecks(value.checks as Check[]); onNotice(value.ok ? "Connexion Meta vérifiée." : "Des vérifications ont échoué."); } }}>{busy === "test" ? "Test…" : "Tester la connexion"}</button>
         <button type="button" disabled={busy !== ""} onClick={async () => { const value = await post("/api/admin/meta/sync", { target: "insights" }, "insights"); if (value) onNotice("Synchronisation des insights terminée."); }}>{busy === "insights" ? "Synchro…" : "Synchroniser les insights"}</button>
@@ -114,6 +117,14 @@ export default function MetaPanel({ csrfToken, onNotice, onError }: { csrfToken:
           <div><dt>Refusés par Meta</dt><dd>{catalog.failed ?? 0}</dd></div>
         </dl>}
         {catalog.failures && catalog.failures.length > 0 && <ul className="failure-list">{catalog.failures.slice(0, 8).map((failure) => <li key={failure.retailerId}><b>{failure.retailerId}</b><span>{failure.error}</span></li>)}</ul>}
+
+        <h3 className="subhead">Publications Facebook</h3>
+        {status.pagePosts.error ? <p className="metric-note">{status.pagePosts.error}</p> : <dl className="metric-list">
+          <div><dt>Publiées</dt><dd>{status.pagePosts.published}</dd></div>
+          <div><dt>En attente</dt><dd>{status.pagePosts.pending}</dd></div>
+          <div><dt>En échec</dt><dd>{status.pagePosts.failed}</dd></div>
+        </dl>}
+        {status.pagePosts.failures.length > 0 && <ul className="failure-list">{status.pagePosts.failures.map((failure) => <li key={failure.productId}><b>Produit #{failure.productId}</b><span>{failure.error}</span><button type="button" disabled={busy !== ""} onClick={async () => { const value = await post("/api/admin/meta/page-post", { productId: failure.productId }, `page-${failure.productId}`); if (value) onNotice("Produit publié sur la Page Facebook."); }}>{busy === `page-${failure.productId}` ? "Nouvel essai…" : "Réessayer"}</button></li>)}</ul>}
       </section>
 
       <section className="admin-card">

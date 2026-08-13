@@ -94,6 +94,9 @@ const catalogSource = await readFile(new URL("../lib/meta/catalog.ts", import.me
 const storefrontSource = await readFile(new URL("../app/storefront.tsx", import.meta.url), "utf8");
 const detailSource = await readFile(new URL("../app/produits/[slug]/product-detail.tsx", import.meta.url), "utf8");
 const purchaseSource = await readFile(new URL("../lib/meta/purchase.ts", import.meta.url), "utf8");
+const productRouteSource = await readFile(new URL("../app/api/admin/products/route.ts", import.meta.url), "utf8");
+const pagePostSource = await readFile(new URL("../lib/meta/page-posts.ts", import.meta.url), "utf8");
+const schemaSource = await readFile(new URL("../lib/postgres-schema.sql", import.meta.url), "utf8");
 
 check("catalog builds its item id from contentId()", () => {
   assert.match(catalogSource, /id:\s*contentId\(/, "catalog item id must come from contentId()");
@@ -113,6 +116,21 @@ check("unchanged products hash identically, changed ones do not", () => {
   const item = { id: "a", title: "T", price: "10.00 DZD" };
   assert.equal(itemHash(item), itemHash({ ...item }));
   assert.notEqual(itemHash(item), itemHash({ ...item, price: "11.00 DZD" }));
+});
+
+check("product saves schedule Meta automation after the response", () => {
+  assert.match(productRouteSource, /after\(\(\) => runProductMetaAutomation/, "product route must schedule post-save Meta work");
+  assert.match(productRouteSource, /after\(\(\) => runDeletedProductMetaAutomation/, "hard deletion must also remove the catalogue item");
+});
+
+check("Facebook product posts use a Page token and the photos endpoint", () => {
+  assert.match(pagePostSource, /META_PAGE_ACCESS_TOKEN/, "Page publishing needs its dedicated Page token");
+  assert.match(pagePostSource, /`\$\{pageId\}\/photos`/, "product announcement should publish the main image");
+  assert.doesNotMatch(pagePostSource, /pages_manage_ads/, "ads management is not a Page publishing permission");
+});
+
+check("Facebook post deduplication has a database primary key", () => {
+  assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS meta_product_page_posts[\s\S]*product_id BIGINT PRIMARY KEY/, "one ledger row per product is required");
 });
 
 // --- database: idempotent upserts -------------------------------------------------
