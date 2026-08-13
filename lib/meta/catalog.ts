@@ -3,6 +3,7 @@ import "server-only";
 import crypto from "node:crypto";
 import { listCatalogItems, listProducts, upsertCatalogItemState } from "../db-postgres";
 import { siteUrl } from "../site-url";
+import { totalProductStock } from "../product-stock";
 import type { Product } from "../types";
 import { contentId } from "./events";
 import { graphPost } from "./graph";
@@ -24,16 +25,10 @@ function absoluteUrl(path: string): string {
   return `${siteUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-function totalStock(product: Product): number {
-  return product.variants.length
-    ? product.variants.reduce((sum, variant) => sum + Math.max(0, Math.floor(Number(variant.stock) || 0)), 0)
-    : product.sizes.reduce((sum, size) => sum + Math.max(0, Math.floor(Number(size.stock) || 0)), 0);
-}
-
 /** Meta availability enum: "in stock" | "out of stock" | "available for order" | "discontinued". */
 function availability(product: Product): string {
   if (product.status === "archived") return "discontinued";
-  return totalStock(product) > 0 ? "in stock" : "out of stock";
+  return totalProductStock(product) > 0 ? "in stock" : "out of stock";
 }
 
 /** Price format required by Meta: amount and 3-letter ISO code separated by a space. */
