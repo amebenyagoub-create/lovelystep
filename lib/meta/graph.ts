@@ -116,6 +116,11 @@ export async function graphPostWithAccessToken<T>(path: string, body: unknown, a
   return graphRequest<T>(path, {}, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, attempts, accessToken);
 }
 
+/** Best-effort cleanup for unpublished Page media when a multi-photo post cannot be completed. */
+export async function graphDeleteWithAccessToken<T>(path: string, accessToken: string): Promise<T> {
+  return graphRequest<T>(path, {}, { method: "DELETE" }, 1, accessToken);
+}
+
 /** Read-only Page probes also need the dedicated Page Access Token. */
 export async function graphRequestWithAccessToken<T>(path: string, params: Record<string, string>, accessToken: string): Promise<T> {
   return graphRequest<T>(path, params, undefined, 4, accessToken);

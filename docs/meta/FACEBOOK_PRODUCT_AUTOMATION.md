@@ -5,7 +5,8 @@
 - Chaque enregistrement de produit déclenche une synchronisation incrémentale du catalogue si
   `META_AUTO_CATALOG_SYNC_ENABLED=true`.
 - Le premier passage d'un produit de brouillon/archivé à `published` crée une publication photo
-  si `META_AUTO_POST_ENABLED=true`.
+  si `META_AUTO_POST_ENABLED=true`. Les produits avec plusieurs images créent une seule
+  publication Facebook regroupant jusqu'à 10 images.
 - Modifier un produit déjà publié met le catalogue à jour sans créer un nouveau post.
 - Archiver ou supprimer un produit le retire automatiquement du catalogue.
 - Une panne Meta ne bloque jamais l'enregistrement du produit dans la boutique.
@@ -38,5 +39,7 @@ META_PAGE_ACCESS_TOKEN=
 
 ## Publication produite
 
-L'application appelle `POST /{page-id}/photos` avec l'image principale publique, un texte court,
-le prix en DZD et le lien canonique `https://lovelystep.com/produits/{slug}`.
+Avec une image, l'application appelle directement `POST /{page-id}/photos`. Avec plusieurs images,
+elle les téléverse d'abord comme photos non publiées, puis appelle `POST /{page-id}/feed` avec
+`attached_media` afin de créer une seule publication. Le texte contient le prix en DZD et le lien
+canonique `https://lovelystep.com/produits/{slug}`.

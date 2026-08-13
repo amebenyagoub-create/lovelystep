@@ -123,9 +123,12 @@ check("product saves schedule Meta automation after the response", () => {
   assert.match(productRouteSource, /after\(\(\) => runDeletedProductMetaAutomation/, "hard deletion must also remove the catalogue item");
 });
 
-check("Facebook product posts use a Page token and the photos endpoint", () => {
+check("Facebook product posts use a Page token and support multi-photo posts", () => {
   assert.match(pagePostSource, /META_PAGE_ACCESS_TOKEN/, "Page publishing needs its dedicated Page token");
-  assert.match(pagePostSource, /`\$\{pageId\}\/photos`/, "product announcement should publish the main image");
+  assert.match(pagePostSource, /`\$\{pageId\}\/photos`/, "product images should be uploaded to the Page");
+  assert.match(pagePostSource, /`\$\{pageId\}\/feed`/, "multi-photo announcements should create one feed post");
+  assert.match(pagePostSource, /attached_media:\s*photoIds\.map/, "all uploaded photos should be attached to the same post");
+  assert.match(pagePostSource, /published:\s*false/, "photos should be staged without separate public posts");
   assert.doesNotMatch(pagePostSource, /pages_manage_ads/, "ads management is not a Page publishing permission");
 });
 
