@@ -682,6 +682,94 @@ export async function listAdsInsights(since: string, until: string, level = "cam
   return rows("SELECT * FROM meta_ads_insights_daily WHERE level=$1 AND date BETWEEN $2 AND $3 ORDER BY date DESC, spend_minor DESC", [level, since, until]);
 }
 
+export type CampaignInsightDailyRecord = {
+  date: string;
+  entityId: string;
+  entityName: string;
+  status: string | null;
+  objective: string | null;
+  currency: string;
+  spendMinor: number;
+  purchaseValueMinor: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  linkClicks: number;
+  landingPageViews: number;
+  addsToCart: number;
+  checkouts: number;
+  purchases: number;
+  syncedAt: string;
+};
+
+/** Strongly typed campaign rows used by the deterministic intelligence service. */
+export async function listCampaignInsightRows(since: string, until: string): Promise<CampaignInsightDailyRecord[]> {
+  return (await rows(
+    `SELECT date,entity_id,entity_name,status,objective,currency,spend_minor,purchase_value_minor,
+      impressions,reach,clicks,link_clicks,landing_page_views,adds_to_cart,checkouts,purchases,synced_at
+     FROM meta_ads_insights_daily WHERE level='campaign' AND date BETWEEN $1 AND $2
+     ORDER BY date, spend_minor DESC`,
+    [since, until],
+  )).map((row) => ({
+    date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10),
+    entityId: String(row.entity_id),
+    entityName: String(row.entity_name ?? row.campaign_name ?? ""),
+    status: row.status == null ? null : String(row.status),
+    objective: row.objective == null ? null : String(row.objective),
+    currency: String(row.currency ?? ""),
+    spendMinor: Number(row.spend_minor ?? 0),
+    purchaseValueMinor: Number(row.purchase_value_minor ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    reach: Number(row.reach ?? 0),
+    clicks: Number(row.clicks ?? 0),
+    linkClicks: Number(row.link_clicks ?? 0),
+    landingPageViews: Number(row.landing_page_views ?? 0),
+    addsToCart: Number(row.adds_to_cart ?? 0),
+    checkouts: Number(row.checkouts ?? 0),
+    purchases: Number(row.purchases ?? 0),
+    syncedAt: timestamp(row.synced_at),
+  }));
+}
+
+export async function getCampaignThresholdOverrides(): Promise<unknown> {
+  const result = await rows("SELECT value_json FROM app_settings WHERE setting_key='campaign_intelligence_thresholds'");
+  return result[0]?.value_json ?? null;
+}
+
+export async function getCampaignAiCache(fingerprint: string): Promise<{ model: string | null; analysis: unknown; createdAt: string } | null> {
+  const result = await rows(
+    "SELECT model,analysis_json,created_at FROM campaign_ai_analyses WHERE fingerprint=$1 AND expires_at>NOW()",
+    [fingerprint],
+  );
+  if (!result[0]) return null;
+  return {
+    model: result[0].model == null ? null : String(result[0].model),
+    analysis: result[0].analysis_json,
+    createdAt: timestamp(result[0].created_at),
+  };
+}
+
+export async function saveCampaignAiCache(input: {
+  fingerprint: string;
+  entityId: string;
+  since: string;
+  until: string;
+  deterministicStatus: "SCALE" | "KEEP" | "WATCH" | "KILL";
+  model: string | null;
+  analysis: unknown;
+  expiresAt: Date;
+}): Promise<void> {
+  await ensureDatabase();
+  await pool.query(
+    `INSERT INTO campaign_ai_analyses
+      (fingerprint,entity_level,entity_id,period_since,period_until,deterministic_status,model,analysis_json,expires_at)
+     VALUES ($1,'campaign',$2,$3,$4,$5,$6,$7::jsonb,$8)
+     ON CONFLICT(fingerprint) DO UPDATE SET model=EXCLUDED.model,analysis_json=EXCLUDED.analysis_json,
+       deterministic_status=EXCLUDED.deterministic_status,created_at=NOW(),expires_at=EXCLUDED.expires_at`,
+    [input.fingerprint, input.entityId, input.since, input.until, input.deterministicStatus, input.model, JSON.stringify(input.analysis), input.expiresAt],
+  );
+}
+
 // Sync freshness. Stale or failing jobs must be visible, not silent.
 export type SyncState = { syncKey:string; lastRunAt:string|null; lastSuccessAt:string|null; lastError:string|null; lastResult:unknown };
 export async function recordSyncResult(syncKey: string, success: boolean, error: string | null, result: unknown): Promise<void> {

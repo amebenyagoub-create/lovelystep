@@ -327,6 +327,21 @@ CREATE TABLE IF NOT EXISTS meta_sync_state (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Cached Groq explanations. Deterministic KPIs and decisions remain the source of truth;
+-- this table only avoids regenerating narrative text for unchanged campaign inputs.
+CREATE TABLE IF NOT EXISTS campaign_ai_analyses (
+  fingerprint TEXT PRIMARY KEY,
+  entity_level TEXT NOT NULL CHECK(entity_level IN ('campaign','adset','ad')),
+  entity_id TEXT NOT NULL,
+  period_since DATE NOT NULL,
+  period_until DATE NOT NULL,
+  deterministic_status TEXT NOT NULL CHECK(deterministic_status IN ('SCALE','KEEP','WATCH','KILL')),
+  model TEXT,
+  analysis_json JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
 -- Per-product catalog sync state, including the failure reason for items Meta rejected.
 CREATE TABLE IF NOT EXISTS meta_catalog_items (
   product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
@@ -370,3 +385,5 @@ CREATE INDEX IF NOT EXISTS idx_meta_attribution_visitor ON meta_attribution(visi
 CREATE INDEX IF NOT EXISTS idx_meta_insights_date ON meta_ads_insights_daily(date DESC, level);
 CREATE INDEX IF NOT EXISTS idx_meta_insights_campaign ON meta_ads_insights_daily(campaign_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_meta_catalog_items_synced ON meta_catalog_items(last_synced_at);
+CREATE INDEX IF NOT EXISTS idx_campaign_ai_entity ON campaign_ai_analyses(entity_level, entity_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_campaign_ai_expiry ON campaign_ai_analyses(expires_at);
