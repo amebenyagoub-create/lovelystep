@@ -49,6 +49,8 @@
 .admin-mobile-topbar,.admin-mobile-bottom-nav,.admin-mobile-menu-overlay{display:none}
 .order-number>small,.order-total>small,.order-status-cell>label>span{display:none}
 .order-customer>a{display:block;color:inherit}
+.order-delete-button{border:1px solid #f2b9b4;background:#fff4f2;color:#a9342c;border-radius:9px;padding:8px 10px;font-size:11px;font-weight:900}
+.order-delete-button:disabled{cursor:not-allowed;opacity:.45}
 
 @media(max-width:800px){
   body:has(.admin-mobile-menu-overlay){overflow:hidden}
@@ -97,8 +99,9 @@
   .order-status-cell>label>span{display:block}
   .order-status-cell select{width:100%;min-height:44px;font-size:14px;font-weight:800}
   .order-status-cell .status{align-self:center}
-  .order-status-cell .zr-send-button,.order-status-cell .delivery-sync-error,.order-status-cell .zr-help,.order-status-cell .zr-parcel-id{grid-column:1/-1}
+  .order-status-cell .zr-send-button,.order-status-cell .delivery-sync-error,.order-status-cell .zr-help,.order-status-cell .zr-parcel-id,.order-status-cell .order-delete-button{grid-column:1/-1}
   .order-status-cell .zr-send-button{min-height:44px;width:100%}
+  .order-status-cell .order-delete-button{min-height:42px;width:100%}
 
   .admin-product-list{gap:12px}
   .admin-product-list article{grid-template-columns:70px minmax(0,1fr) auto!important;gap:11px;padding:13px;border:1px solid #e3e8ee;border-radius:16px;background:#fff}

@@ -82,6 +82,11 @@ async function setStatus(orderId, status) {
   return await fetch(`${baseUrl}/api/admin/orders`, { method: "PATCH", headers: { ...jsonHeaders, cookie, "x-csrf-token": data.csrfToken }, body: JSON.stringify({ id: orderId, status }) });
 }
 
+async function deleteOrder(orderId) {
+  data = await adminData();
+  return await fetch(`${baseUrl}/api/admin/orders`, { method: "DELETE", headers: { ...jsonHeaders, cookie, "x-csrf-token": data.csrfToken }, body: JSON.stringify({ id: orderId }) });
+}
+
 const firstOrderResult = await placeOrder("Crème", 2);
 data = await adminData();
 const firstOrder = data.orders.find((item) => item.orderNumber === firstOrderResult.orderNumber);
@@ -109,6 +114,19 @@ if (creamStock() !== 1 || marineStock() !== 4) throw new Error("Variant inventor
 if (data.stats.deliveredRevenueCents !== 750000 || data.stats.grossProfitCents !== 450000) throw new Error("Delivered revenue or gross profit is incorrect.");
 if (data.stats.repeatBuyerRate !== 100 || data.stats.visitors30d !== 1) throw new Error("Repeat buyer rate or visitor KPI is incorrect.");
 if (data.stats.inventoryUnits !== initialInventory + 5) throw new Error("Inventory KPI is incorrect.");
+
+const deletionOrderResult = await placeOrder("Marine", 1);
+data = await adminData();
+const deletionOrder = data.orders.find((item) => item.orderNumber === deletionOrderResult.orderNumber);
+product = data.products.find((item) => item.id === productId);
+if (!deletionOrder || marineStock() !== 3) throw new Error("Deletion test order did not reserve stock.");
+const deleteOrderResponse = await deleteOrder(deletionOrder.id);
+if (!deleteOrderResponse.ok) throw new Error(`Order deletion failed: ${deleteOrderResponse.status}`);
+data = await adminData();
+product = data.products.find((item) => item.id === productId);
+if (data.orders.some((item) => item.id === deletionOrder.id) || marineStock() !== 4) throw new Error("Order deletion did not remove the order and restore stock.");
+const missingDelete = await deleteOrder(deletionOrder.id);
+if (missingDelete.status !== 404) throw new Error(`Deleting a missing order should return 404, received ${missingDelete.status}`);
 
 const blockedDelete = await fetch(`${baseUrl}/api/admin/products`, { method: "DELETE", headers: { ...jsonHeaders, cookie, "x-csrf-token": data.csrfToken }, body: JSON.stringify({ id: productId }) });
 if (blockedDelete.status !== 409) throw new Error("Deleting a product tied to reserved orders should be blocked.");
@@ -144,5 +162,6 @@ console.log(JSON.stringify({
   repeatBuyerRate: 100,
   inventoryKpi: true,
   safeProductDeletion: true,
+  safeOrderDeletion: true,
   expiredSessionRejected: true,
 }, null, 2));

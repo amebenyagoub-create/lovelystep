@@ -199,6 +199,35 @@ export async function claimOrderForDelivery(id:number):Promise<DeliveryDispatchC
 const releasing=new Set<OrderStatus>(["refused","returned","cancelled"]);
 export async function updateOrderStatus(id:number,status:OrderStatus,adminId:number|null=null,reasonCode:string|null=null,note:string|null=null):Promise<"updated"|"not_found"|"stock_unavailable">{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");const result=await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE",[id]);if(!result.rows[0]){await client.query("ROLLBACK");return "not_found";}const order=mapOrder(result.rows[0]);const reserved=Boolean(result.rows[0].stock_reserved);const shouldReserve=!releasing.has(status);if(reserved&&!shouldReserve)await changeStock(client,order.items,1);if(!reserved&&shouldReserve)await changeStock(client,order.items,-1);await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3",[status,shouldReserve,id]);if(order.status!==status)await client.query("INSERT INTO order_status_history (order_id,status,changed_by_admin_id,reason_code,note) VALUES ($1,$2,$3,$4,$5)",[id,status,adminId,reasonCode,note]);await client.query("COMMIT");return "updated";}catch(error){await client.query("ROLLBACK");if(error instanceof StockUnavailableError)return "stock_unavailable";throw error;}finally{client.release();}}
 
+export type DeleteOrderResult = { status: "deleted"; order: Order } | { status: "not_found" } | { status: "delivery_in_progress" };
+export async function deleteOrder(id: number): Promise<DeleteOrderResult> {
+  await ensureDatabase();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [id]);
+    if (!result.rows[0]) {
+      await client.query("ROLLBACK");
+      return { status: "not_found" };
+    }
+    const row = result.rows[0];
+    const order = mapOrder(row);
+    if (order.deliveryExternalId || order.deliverySyncStatus === "sent" || order.deliverySyncStatus === "pending") {
+      await client.query("ROLLBACK");
+      return { status: "delivery_in_progress" };
+    }
+    if (row.stock_reserved) await changeStock(client, order.items, 1);
+    await client.query("DELETE FROM orders WHERE id=$1", [id]);
+    await client.query("COMMIT");
+    return { status: "deleted", order };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 type WhatsAppOrderResultStatus =
   | "present_confirmation"
   | "present_reasons"
