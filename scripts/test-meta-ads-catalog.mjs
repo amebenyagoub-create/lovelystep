@@ -96,6 +96,8 @@ const detailSource = await readFile(new URL("../app/produits/[slug]/product-deta
 const purchaseSource = await readFile(new URL("../lib/meta/purchase.ts", import.meta.url), "utf8");
 const productRouteSource = await readFile(new URL("../app/api/admin/products/route.ts", import.meta.url), "utf8");
 const pagePostSource = await readFile(new URL("../lib/meta/page-posts.ts", import.meta.url), "utf8");
+const instagramPostSource = await readFile(new URL("../lib/meta/instagram-posts.ts", import.meta.url), "utf8");
+const automationSource = await readFile(new URL("../lib/meta/product-automation.ts", import.meta.url), "utf8");
 const schemaSource = await readFile(new URL("../lib/postgres-schema.sql", import.meta.url), "utf8");
 
 check("catalog builds its item id from contentId()", () => {
@@ -134,6 +136,19 @@ check("Facebook product posts use a Page token and support multi-photo posts", (
 
 check("Facebook post deduplication has a database primary key", () => {
   assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS meta_product_page_posts[\s\S]*product_id BIGINT PRIMARY KEY/, "one ledger row per product is required");
+});
+
+check("Instagram product posts use the official container publishing flow", () => {
+  assert.match(instagramPostSource, /META_INSTAGRAM_ACCOUNT_ID/, "the professional Instagram account id must be explicit");
+  assert.match(instagramPostSource, /`\$\{accountId\}\/media`/, "images should be uploaded into Instagram containers");
+  assert.match(instagramPostSource, /`\$\{accountId\}\/media_publish`/, "the finished container should be published");
+  assert.match(instagramPostSource, /media_type:\s*"CAROUSEL"/, "several product images should create one carousel");
+  assert.match(instagramPostSource, /children:\s*children\.join/, "every carousel image should be attached");
+  assert.match(automationSource, /META_INSTAGRAM_AUTO_POST_ENABLED/, "Instagram posting must remain opt-in");
+});
+
+check("Instagram post deduplication has its own database primary key", () => {
+  assert.match(schemaSource, /CREATE TABLE IF NOT EXISTS meta_product_instagram_posts[\s\S]*product_id BIGINT PRIMARY KEY/, "one Instagram ledger row per product is required");
 });
 
 // --- database: idempotent upserts -------------------------------------------------

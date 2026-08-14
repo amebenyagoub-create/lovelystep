@@ -53,6 +53,23 @@ export async function POST(request: Request) {
     } catch (error) {
       checks.push({ name: "facebook_page", ok: false, detail: error instanceof MetaTokenExpiredError ? "Jeton Page expiré ou invalide." : (error instanceof Error ? error.message.slice(0, 200) : "Échec") });
     }
+    try {
+      const page = await graphRequestWithAccessToken<{ instagram_business_account?: { id?: string; username?: string } }>(pageId, { fields: "instagram_business_account{id,username}" }, pageToken);
+      const instagram = page.instagram_business_account;
+      const configuredInstagramId = (process.env.META_INSTAGRAM_ACCOUNT_ID ?? "").trim();
+      const discoveredInstagramId = String(instagram?.id ?? "");
+      checks.push({
+        name: "instagram_account",
+        ok: Boolean(discoveredInstagramId) && (!configuredInstagramId || configuredInstagramId === discoveredInstagramId),
+        detail: !discoveredInstagramId
+          ? "Aucun compte Instagram professionnel relié à cette Page."
+          : configuredInstagramId && configuredInstagramId !== discoveredInstagramId
+            ? `META_INSTAGRAM_ACCOUNT_ID ne correspond pas au compte relié (${discoveredInstagramId}).`
+            : `@${String(instagram?.username ?? discoveredInstagramId).slice(0, 80)} · ID ${discoveredInstagramId} — instagram_content_publish sera vérifiée au premier envoi.`,
+      });
+    } catch (error) {
+      checks.push({ name: "instagram_account", ok: false, detail: error instanceof MetaTokenExpiredError ? "Jeton Page expiré ou invalide." : (error instanceof Error ? error.message.slice(0, 200) : "Échec") });
+    }
   }
 
   await audit(session.adminId, "meta.test_connection", "meta", "connection", { ok: checks.every((check) => check.ok) });

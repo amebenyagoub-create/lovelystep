@@ -368,6 +368,19 @@ CREATE TABLE IF NOT EXISTS meta_product_page_posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- One Instagram post per product, independent from the Facebook Page post ledger.
+CREATE TABLE IF NOT EXISTS meta_product_instagram_posts (
+  product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL,
+  post_id TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','published','failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 1 CHECK(attempt_count > 0),
+  last_error TEXT,
+  posted_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Dated exchange rates. The Meta ad account is not billed in DZD, so spend must be converted
 -- with the rate that applied on the spend date. A missing rate is never treated as 1.0 or 0:
 -- the KPI layer reports the period as incomplete instead of inventing a number.
@@ -401,5 +414,6 @@ CREATE INDEX IF NOT EXISTS idx_meta_insights_date ON meta_ads_insights_daily(dat
 CREATE INDEX IF NOT EXISTS idx_meta_insights_campaign ON meta_ads_insights_daily(campaign_id, date DESC);
 CREATE INDEX IF NOT EXISTS idx_meta_catalog_items_synced ON meta_catalog_items(last_synced_at);
 CREATE INDEX IF NOT EXISTS idx_meta_product_page_posts_status ON meta_product_page_posts(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_meta_product_instagram_posts_status ON meta_product_instagram_posts(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_entity ON campaign_ai_analyses(entity_level, entity_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_expiry ON campaign_ai_analyses(expires_at);

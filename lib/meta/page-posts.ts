@@ -55,7 +55,7 @@ export type PublishProductResult = {
   error?: string;
 };
 
-function productPostImages(product: Product): string[] {
+export function productPostImages(product: Product): string[] {
   return [...new Set(product.images.map((image) => image.trim()).filter(Boolean))]
     .slice(0, MAX_FACEBOOK_POST_IMAGES)
     .map(absoluteUrl);

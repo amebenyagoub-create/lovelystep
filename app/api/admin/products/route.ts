@@ -140,7 +140,7 @@ export async function POST(request: Request) {
     });
     await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
     const metaAutomation = productMetaAutomationPlan(previous, product);
-    if (metaAutomation.catalog || metaAutomation.pagePost) {
+    if (metaAutomation.catalog || metaAutomation.pagePost || metaAutomation.instagramPost) {
       after(() => runProductMetaAutomation(previous, product));
     }
     return NextResponse.json({ product, metaAutomation });

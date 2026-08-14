@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { isTrackingDisabledByAdmin, latestSpendCurrency, listRecentMetaEvents, listSyncState, productPagePostSummary } from "@/lib/db-postgres";
+import { isTrackingDisabledByAdmin, latestSpendCurrency, listRecentMetaEvents, listSyncState, productInstagramPostSummary, productPagePostSummary } from "@/lib/db-postgres";
 import { metaStatus } from "@/lib/meta/config";
 import { catalogQualityReport } from "@/lib/meta/catalog";
+import { metaInstagramPostingStatus } from "@/lib/meta/instagram-posts";
 import { metaPagePostingStatus } from "@/lib/meta/page-posts";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +14,12 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
 
   const status = metaStatus();
-  const [syncState, events, catalog, pagePosts, adminDisabled, spendCurrency] = await Promise.all([
+  const [syncState, events, catalog, pagePosts, instagramPosts, adminDisabled, spendCurrency] = await Promise.all([
     listSyncState(),
     listRecentMetaEvents(50),
     catalogQualityReport().catch((error) => ({ error: error instanceof Error ? error.message.slice(0, 200) : "Rapport indisponible." })),
     productPagePostSummary().catch((error) => ({ published: 0, failed: 0, pending: 0, failures: [], error: error instanceof Error ? error.message.slice(0, 200) : "Rapport indisponible." })),
+    productInstagramPostSummary().catch((error) => ({ published: 0, failed: 0, pending: 0, failures: [], error: error instanceof Error ? error.message.slice(0, 200) : "Rapport indisponible." })),
     isTrackingDisabledByAdmin().catch(() => false),
     latestSpendCurrency().catch(() => ""),
   ]);
@@ -43,11 +45,13 @@ export async function GET() {
       businessConfigured: Boolean((process.env.META_BUSINESS_ID ?? "").trim()),
       autoCatalogSyncEnabled: process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true",
       pagePosting: metaPagePostingStatus(),
+      instagramPosting: metaInstagramPostingStatus(),
     },
     syncState,
     coverage,
     catalog,
     pagePosts,
+    instagramPosts,
     // Currency the ad account is billed in, taken from the last synced spend row.
     // "" means no spend has been synced yet, so the admin picks the currency manually.
     spendCurrency,
