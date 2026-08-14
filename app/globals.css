@@ -158,7 +158,9 @@
 /* Les visuels produits générés sont en 1080×1350 (4:5). Garder ce ratio évite tout recadrage du logo et du cadre. */
 .product-image,.gallery-main{aspect-ratio:4/5}
 .thumbnails button{height:102px}
-.size-row.age-size-row{grid-template-columns:1.4fr 1fr}
+.size-row.age-size-row{grid-template-columns:1.2fr 1fr .9fr}
+.size-guide-visual{position:relative;width:100%;aspect-ratio:4/5;align-self:center;overflow:hidden;border-radius:20px}
+.size-guide-visual img{object-fit:contain}
 
 .consent-banner{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(30,65,106,.1);padding:16px 22px;display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
 .consent-banner p{margin:0;font-size:13px;line-height:1.6;color:var(--ink);max-width:720px}
