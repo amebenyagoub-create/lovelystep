@@ -33,22 +33,29 @@ const AGE_HEIGHT_MAP: Record<string, string> = {
   "9-10 ans": "134–140",
 };
 
+const AGE_PATTERN = /^\d+\s*[-–]\s*\d+\s*(?:mois|ans?|months?|years?)$/i;
+
 export function frenchAgeLabel(size: SizeLike): string {
   const explicit = String(size.age ?? "").trim();
-  if (explicit) return explicit;
-  const match = String(size.label).trim().match(/^(\d{2,3})(?:\s*cm)?$/i);
-  if (!match) return String(size.label).trim();
-  const supplierSize = Number(match[1]);
-  return SUPPLIER_AGE_MAP.find(([maximum]) => supplierSize <= maximum)?.[1] ?? String(size.label).trim();
+  if (AGE_PATTERN.test(explicit)) return explicit;
+
+  const supplierCode = `${size.label} ${explicit}`.trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/[^\s]+)?/i)?.[1];
+  if (!supplierCode) return explicit || String(size.label).trim();
+
+  const supplierSize = Number(supplierCode);
+  return SUPPLIER_AGE_MAP.find(([maximum]) => supplierSize <= maximum)?.[1] ?? (explicit || String(size.label).trim());
 }
 
 export function localizedAgeLabel(size: SizeLike, locale: StoreLocale): string {
   const value = frenchAgeLabel(size);
   if (locale === "fr") return value;
+
   const months = value.match(/^(\d+)\s*[-–]\s*(\d+)\s*mois$/i);
   if (months) return locale === "ar" ? `${months[1]}–${months[2]} أشهر` : `${months[1]}–${months[2]} months`;
+
   const years = value.match(/^(\d+)\s*[-–]\s*(\d+)\s*ans?$/i);
   if (years) return locale === "ar" ? `${years[1]}–${years[2]} سنوات` : `${years[1]}–${years[2]} years`;
+
   return value;
 }
 
@@ -56,8 +63,10 @@ export function recommendedHeightLabel(size: SizeLike, locale: StoreLocale): str
   const unit = locale === "ar" ? "سم" : "cm";
   const explicit = String(size.height ?? "").trim().replace(/\s*(?:cm|سم)\s*$/i, "");
   if (explicit) return `${explicit} ${unit}`;
-  const supplierSize = String(size.label).trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/.*)?$/i)?.[1];
-  if (supplierSize) return `${supplierSize} ${unit}`;
+
   const range = AGE_HEIGHT_MAP[frenchAgeLabel(size)];
-  return range ? `${range} ${unit}` : "—";
+  if (range) return `${range} ${unit}`;
+
+  const supplierSize = String(size.label).trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/.*)?$/i)?.[1];
+  return supplierSize ? `${supplierSize} ${unit}` : "—";
 }

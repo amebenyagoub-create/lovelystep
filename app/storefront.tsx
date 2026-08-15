@@ -48,6 +48,17 @@ function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "h
 type CheckoutState = { fullName: string; phone: string; wilayaCode: string; commune: string; deliveryType: DeliveryType; notes: string };
 const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", commune: "", deliveryType: "home", notes: "" };
 
+function trackCheckout(items: CartItem[]) {
+  trackMeta("InitiateCheckout", {
+    content_ids: items.map((item) => contentId(item.slug)),
+    contents: items.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+    content_type: "product",
+    value: items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) / 100,
+    currency: "DZD",
+    num_items: items.reduce((sum, item) => sum + item.quantity, 0),
+  });
+}
+
 export default function Storefront({ products, settings, wilayas, deliveryRates, freeShippingThresholdCents }: { products: PublicProduct[]; settings: StoreSettings; wilayas: AlgeriaWilaya[]; deliveryRates: DeliveryRate[]; freeShippingThresholdCents: number }) {
   const { locale, setLocale, t, dir } = useLocale();
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -69,9 +80,12 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setCart(parseStoredCart(localStorage.getItem(CART_KEY)));
+      const storedCart = parseStoredCart(localStorage.getItem(CART_KEY));
+      const action = new URLSearchParams(window.location.search);
+      setCart(storedCart);
       cartLoaded.current = true;
-      if (new URLSearchParams(window.location.search).get("bag") === "1") setCartOpen(true);
+      if (action.get("checkout") === "1" && storedCart.length) { setCheckoutOpen(true); trackCheckout(storedCart); }
+      else if (action.get("bag") === "1") setCartOpen(true);
     }, 0);
     void fetch("/api/account/me", { cache: "no-store" }).then((response) => response.json()).then((value) => {
       if (!value.customer) return;
@@ -127,14 +141,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
 
   function startCheckout() {
     if (!cart.length) return;
-    trackMeta("InitiateCheckout", {
-      content_ids: cart.map((item) => contentId(item.slug)),
-      contents: cart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
-      content_type: "product",
-      value: subtotal / 100,
-      currency: "DZD",
-      num_items: count,
-    });
+    trackCheckout(cart);
   }
 
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
@@ -204,6 +211,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
+      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} unoptimized={item.image.startsWith("/api/media/")} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(item.unitPriceCents * item.quantity)}</b></div>)}</div>}
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p>{whatsappConfirmationUrl && <><a className="primary-button whatsapp-button" href={whatsappConfirmationUrl} target="_blank" rel="noreferrer">{t("whatsappConfirm")}</a><small className="whatsapp-help">{t("whatsappConfirmHelp")}</small></>}<button className={whatsappConfirmationUrl ? "secondary-button" : "primary-button"} onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
