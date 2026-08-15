@@ -400,9 +400,11 @@ export default function LegalPage({ kind }: { kind: LegalKind }) {
       <Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={120} height={120} />
       <p>Tiny Steps, Big Love</p>
       <small>© {new Date().getFullYear()} Lovely Step. {t("rights")}</small>
+      <small>{t("legalEntity")}</small>
       <nav className="legal-links">
         <Link href="/confidentialite">{t("privacy")}</Link>
         <Link href="/suppression-donnees">{t("dataDeletion")}</Link>
+        <Link href="/mentions-legales">{t("legalNotices")}</Link>
       </nav>
     </footer>
   </div>;

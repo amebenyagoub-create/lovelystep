@@ -18,7 +18,8 @@ const dictionary = {
     shippingPrice: "Frais de livraison", total: "Total à payer à la livraison", confirm: "Confirmer ma commande", sending: "Envoi…", finishButton: "Terminer",
     orderHelp: "Après l’enregistrement, vous pourrez confirmer gratuitement sur WhatsApp.", whatsappConfirm: "Confirmer sur WhatsApp", whatsappConfirmHelp: "Envoyez le message prérempli : l’agent affichera ensuite votre commande et ses boutons de confirmation.", login: "Connexion", register: "Créer un compte", password: "Mot de passe", passwordHelp: "8 caractères minimum",
     welcome: "Bienvenue", savedAddress: "Votre adresse est enregistrée et préremplie à la commande.", logout: "Se déconnecter", accountTitle: "Espace client", accountError: "Action impossible.",
-    privacy: "Confidentialité", dataDeletion: "Suppression des données",
+    privacy: "Confidentialité", dataDeletion: "Suppression des données", legalNotices: "Mentions légales",
+    legalEntity: "Lovely Step est le nom commercial de l’entreprise individuelle Benyagoub Ameur.",
   },
   en: {
     new: "New arrivals", promise: "Our promise", cart: "Cart", account: "My account", collection: "The Lovely Step collection",
@@ -33,7 +34,8 @@ const dictionary = {
     shippingPrice: "Delivery fee", total: "Total due on delivery", confirm: "Confirm my order", sending: "Sending…", finishButton: "Done",
     orderHelp: "After placing the order, you can confirm it on WhatsApp for free.", whatsappConfirm: "Confirm on WhatsApp", whatsappConfirmHelp: "Send the prefilled message; the agent will then show your order and confirmation buttons.", login: "Sign in", register: "Create account", password: "Password", passwordHelp: "At least 8 characters",
     welcome: "Welcome", savedAddress: "Your saved address will be prefilled at checkout.", logout: "Sign out", accountTitle: "Customer account", accountError: "Action failed.",
-    privacy: "Privacy", dataDeletion: "Data deletion",
+    privacy: "Privacy", dataDeletion: "Data deletion", legalNotices: "Legal notice",
+    legalEntity: "Lovely Step is the trading name of the sole proprietorship Benyagoub Ameur.",
   },
   ar: {
     new: "الجديد", promise: "وعدنا", cart: "السلة", account: "حسابي", collection: "تشكيلة Lovely Step",
@@ -48,7 +50,8 @@ const dictionary = {
     shippingPrice: "سعر التوصيل", total: "المبلغ عند الاستلام", confirm: "تأكيد الطلب", sending: "جارٍ الإرسال…", finishButton: "إنهاء",
     orderHelp: "بعد تسجيل الطلب، يمكنكم تأكيده مجاناً عبر واتساب.", whatsappConfirm: "التأكيد عبر واتساب", whatsappConfirmHelp: "أرسلوا الرسالة الجاهزة، ثم سيعرض المساعد الطلب وأزرار التأكيد.", login: "تسجيل الدخول", register: "إنشاء حساب", password: "كلمة المرور", passwordHelp: "8 أحرف على الأقل",
     welcome: "مرحباً", savedAddress: "سيتم ملء عنوانكم المحفوظ تلقائياً عند الطلب.", logout: "تسجيل الخروج", accountTitle: "فضاء الزبون", accountError: "تعذر تنفيذ العملية.",
-    privacy: "الخصوصية", dataDeletion: "حذف البيانات",
+    privacy: "الخصوصية", dataDeletion: "حذف البيانات", legalNotices: "الإشعارات القانونية",
+    legalEntity: "Lovely Step هو الاسم التجاري للمؤسسة الفردية Benyagoub Ameur.",
   },
 } as const;
 
