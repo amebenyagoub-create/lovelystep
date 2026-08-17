@@ -17,6 +17,7 @@
     "test:product-overlay": "node scripts/test-product-overlay.mjs",
     "test:size-guide": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-product-size-guide.mjs",
     "test:order-flow": "node scripts/test-order-flow.mjs",
+    "test:google-sheets": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-google-sheets.mjs",
     "test:store-features": "node scripts/test-store-features.mjs",
     "test:finance": "node --env-file=.env.local scripts/test-financial-foundation.mjs",
     "test:meta": "node --env-file=.env.local scripts/test-meta-tracking.mjs",

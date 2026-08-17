@@ -29,6 +29,7 @@ __pycache__/
 # misc
 .DS_Store
 *.pem
+service-account*.json
 
 # debug
 npm-debug.log*

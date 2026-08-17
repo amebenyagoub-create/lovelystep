@@ -5,6 +5,7 @@ import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth"
 import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { shippingAfterPromotion } from "@/lib/free-shipping";
 import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
+import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
 import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
     after(() => persistOrderAttribution(order.id, attribution, metaContext));
     after(() => sendPurchaseEvent(order, metaContext));
+    after(() => queueOrderGoogleSheetSync(order));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
     const confirmationUrl = buildWhatsAppConfirmationUrl(whatsappConfig().businessNumber, order.orderNumber, body.locale === "ar" || body.locale === "en" ? body.locale : "fr");
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber), whatsappConfirmationUrl: confirmationUrl }, { status: 201 });
