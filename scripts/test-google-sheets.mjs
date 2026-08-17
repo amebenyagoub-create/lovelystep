@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ORDER_SHEET_HEADERS, orderSheetRow, verifyGoogleSheetsConnection } from "../lib/google-sheets.ts";
+import { ORDER_SHEET_HEADERS, orderSheetRow, orderStatusFromSheetState, readOrderStatesFromGoogleSheet, verifyGoogleSheetsConnection } from "../lib/google-sheets.ts";
 
 const sample = {
   id: 1,
@@ -39,6 +39,13 @@ assert.equal(row[5], "+213550000001");
 assert.match(row[12], /2-3 ans/);
 assert.equal(row[14], 7500);
 assert.equal(row[15], "home");
+assert.equal(orderStatusFromSheetState("confirmed"), "confirmed");
+assert.equal(orderStatusFromSheetState("Livrée"), "delivered");
+assert.equal(orderStatusFromSheetState("NEEDS_REVIEW"), "to_confirm");
+assert.equal(orderStatusFromSheetState("HUMAN"), "to_confirm");
+assert.equal(orderStatusFromSheetState("ZR_CREATED"), "preparing");
+assert.equal(orderStatusFromSheetState("unknown-agent-state"), null);
 
 const connection = await verifyGoogleSheetsConnection();
-console.log(JSON.stringify({ ok: true, spreadsheetId: connection.spreadsheetId, tabName: connection.tabName, columns: ORDER_SHEET_HEADERS.length }, null, 2));
+const sheetStates = await readOrderStatesFromGoogleSheet();
+console.log(JSON.stringify({ ok: true, spreadsheetId: connection.spreadsheetId, tabName: connection.tabName, columns: ORDER_SHEET_HEADERS.length, states: [...new Set(sheetStates.map((row) => row.sheetState))] }, null, 2));

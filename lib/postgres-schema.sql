@@ -368,6 +368,8 @@ CREATE TABLE IF NOT EXISTS meta_product_page_posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;
+
 -- One Instagram post per product, independent from the Facebook Page post ledger.
 CREATE TABLE IF NOT EXISTS meta_product_instagram_posts (
   product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,

@@ -184,6 +184,8 @@ async function enrichOrders(orders: Order[]): Promise<Order[]> {
   return orders;
 }
 export async function listOrders(): Promise<Order[]> { return enrichOrders((await rows("SELECT * FROM orders ORDER BY created_at DESC LIMIT 250")).map(mapOrder)); }
+export async function listOrderSheetStates(): Promise<Map<number, string>> { return new Map((await rows("SELECT id,google_sheet_state FROM orders WHERE google_sheet_state IS NOT NULL")).map((row) => [Number(row.id), String(row.google_sheet_state)])); }
+export async function rememberOrderSheetState(id: number, state: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET google_sheet_state=$1 WHERE id=$2", [state, id]); }
 export class StockUnavailableError extends Error { constructor(){ super("STOCK_UNAVAILABLE"); } }
 function aggregateVariantSizes(variants: ProductVariant[]): ProductSize[] { const sizes=new Map<string,ProductSize>(); for(const variant of variants){const current=sizes.get(variant.size);const stock=Math.max(0,Math.floor(Number(variant.stock)||0));if(current)current.stock+=stock;else sizes.set(variant.size,{label:variant.size,stock,age:variant.age,weight:variant.weight,height:variant.height});} return [...sizes.values()]; }
 async function changeStock(client: PoolClient, items: OrderItem[], direction: -1|1): Promise<void> {

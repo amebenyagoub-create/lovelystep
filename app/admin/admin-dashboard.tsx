@@ -44,7 +44,11 @@ export default function AdminDashboard() {
       setError("Connexion au serveur impossible. Actualisez la page dans quelques instants.");
     }
   }, [router]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
+    return () => { window.clearTimeout(timer); window.clearInterval(poll); };
+  }, [load]);
 
   async function jsonRequest(url: string, options: RequestInit) {
     if (!data) return null;

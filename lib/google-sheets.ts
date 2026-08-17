@@ -2,8 +2,9 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import { createSign } from "node:crypto";
+import { listOrders, listOrderSheetStates, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
 import { frenchAgeLabel } from "./product-size";
-import type { Order } from "./types";
+import type { Order, OrderStatus } from "./types";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const SHEETS_API = "https://sheets.googleapis.com/v4/spreadsheets";
@@ -39,6 +40,42 @@ type ServiceAccount = {
 type SheetsConfig = {
   spreadsheetId: string;
   tabName: string;
+};
+
+const SHEET_STATES: Record<string, OrderStatus> = {
+  NEW: "new",
+  CREATED: "new",
+  TO_CONFIRM: "to_confirm",
+  PENDING_CONFIRMATION: "to_confirm",
+  CONFIRM_SENT: "to_confirm",
+  CONFIRMATION_SENT: "to_confirm",
+  AWAITING_REPLY: "to_confirm",
+  AWAITING_RESPONSE: "to_confirm",
+  WAITING_CUSTOMER: "to_confirm",
+  NEEDS_HUMAN: "to_confirm",
+  NEEDS_REVIEW: "to_confirm",
+  HUMAN: "to_confirm",
+  CONFIRMED: "confirmed",
+  CONFIRME: "confirmed",
+  ACCEPTED: "confirmed",
+  VALIDATED: "confirmed",
+  PREPARING: "preparing",
+  PROCESSING: "preparing",
+  ZR_CREATED: "preparing",
+  PARCEL_CREATED: "preparing",
+  SHIPPED: "shipped",
+  IN_TRANSIT: "shipped",
+  OUT_FOR_DELIVERY: "shipped",
+  EXPEDIEE: "shipped",
+  DELIVERED: "delivered",
+  LIVREE: "delivered",
+  REFUSED: "refused",
+  REJECTED: "refused",
+  RETURNED: "returned",
+  RETOURNEE: "returned",
+  CANCELLED: "cancelled",
+  CANCELED: "cancelled",
+  ANNULEE: "cancelled",
 };
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
@@ -134,6 +171,11 @@ function dzd(cents: number): number {
   return Math.round(Number(cents || 0)) / 100;
 }
 
+export function orderStatusFromSheetState(value: unknown): OrderStatus | null {
+  const normalized = String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_|_$/g, "");
+  return SHEET_STATES[normalized] ?? null;
+}
+
 export function orderSheetRow(order: Order): Array<string | number | boolean> {
   const localDigits = order.phone.replace(/\D/g, "").replace(/^213/, "");
   const localPhone = localDigits ? `0${localDigits}` : order.phone;
@@ -208,6 +250,42 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
     body: JSON.stringify({ range, majorDimension: "ROWS", values: [orderSheetRow(order)] }),
   }, ":append", "valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS");
   return "appended";
+}
+
+export async function readOrderStatesFromGoogleSheet(): Promise<Array<{ orderNumber: string; sheetState: string; status: OrderStatus | null }>> {
+  const config = sheetsConfig();
+  if (!config) return [];
+  await ensureHeaders(config);
+  const response = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:S"));
+  return (response.values ?? []).flatMap((row) => {
+    const orderNumber = String(row[0] ?? "").trim();
+    const sheetState = String(row[18] ?? "").trim();
+    return orderNumber && sheetState ? [{ orderNumber, sheetState, status: orderStatusFromSheetState(sheetState) }] : [];
+  });
+}
+
+export async function syncOrderStatesFromGoogleSheet(): Promise<{ orders: Order[]; updated: number; unknownStates: string[] }> {
+  const [orders, sheetRows, lastStates] = await Promise.all([listOrders(), readOrderStatesFromGoogleSheet(), listOrderSheetStates()]);
+  const ordersByNumber = new Map(orders.map((order) => [order.orderNumber.toUpperCase(), order]));
+  const unknownStates = new Set<string>();
+  let updated = 0;
+
+  for (const row of sheetRows) {
+    if (!row.status) {
+      unknownStates.add(row.sheetState);
+      continue;
+    }
+    const order = ordersByNumber.get(row.orderNumber.toUpperCase());
+    if (!order || lastStates.get(order.id) === row.sheetState) continue;
+    if (order.status !== row.status) {
+      const result = await updateOrderStatus(order.id, row.status, null, "google_sheet", `État Google Sheets : ${row.sheetState}`);
+      if (result !== "updated") continue;
+      order.status = row.status;
+      updated += 1;
+    }
+    await rememberOrderSheetState(order.id, row.sheetState);
+  }
+  return { orders, updated, unknownStates: [...unknownStates] };
 }
 
 export async function queueOrderGoogleSheetSync(order: Order): Promise<void> {
