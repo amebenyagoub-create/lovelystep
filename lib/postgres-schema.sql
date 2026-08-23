@@ -370,6 +370,22 @@ CREATE TABLE IF NOT EXISTS meta_product_page_posts (
 
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;
 
+-- Durable outbox for the Google Sheet export. The agent only sees an order once
+-- its row exists in the Sheet, so a lost export means no confirmation message and
+-- no parcel. sheet_synced_at IS NULL is the work queue; the cron drains it.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_synced_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_last_error TEXT;
+
+-- Orders that predate the outbox were exported inline and must not flood the
+-- first cron run. Anything older than a day is treated as already handled.
+UPDATE orders SET sheet_synced_at = created_at
+  WHERE sheet_synced_at IS NULL AND created_at < NOW() - INTERVAL '1 day';
+
+-- login_attempts started life as an admin-only table. `scope` lets customer
+-- sign-ins share it without touching the admin lockout logic.
+ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'admin';
+
 -- One Instagram post per product, independent from the Facebook Page post ledger.
 CREATE TABLE IF NOT EXISTS meta_product_instagram_posts (
   product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
@@ -397,6 +413,7 @@ CREATE TABLE IF NOT EXISTS fx_rates (
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_sheet_outbox ON orders(created_at) WHERE sheet_synced_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON admin_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON login_attempts(email, ip, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_order_attempts ON order_attempts(ip, created_at DESC);

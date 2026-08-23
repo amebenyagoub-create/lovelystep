@@ -188,3 +188,14 @@
 @media(max-width:1250px){.campaign-key-metrics{grid-template-columns:repeat(3,1fr)}.campaign-key-metrics>div:nth-child(4){border-left:0;border-top:1px solid var(--line)}.campaign-key-metrics>div:nth-child(5),.campaign-key-metrics>div:nth-child(6){border-top:1px solid var(--line)}}
 @media(max-width:900px){.campaign-manager-hero{grid-template-columns:1fr}.campaign-decision-summary{grid-template-columns:repeat(2,1fr)}.campaign-conclusion{grid-template-columns:1fr}.campaign-detail-grid{grid-template-columns:1fr}.campaign-status-column{flex-direction:row;align-items:center}}
 @media(max-width:650px){.campaign-title-row{flex-direction:column}.campaign-key-metrics{grid-template-columns:1fr}.campaign-key-metrics>div{border-left:0!important;border-top:1px solid var(--line)}.campaign-key-metrics>div:first-child{border-top:0}.campaign-decision-summary{grid-template-columns:1fr 1fr}.campaign-conclusion{padding:18px}.campaign-details{padding:0 18px 18px}}
+
+/* Google Sheet outbox: the queue between the store and the confirmation agent. */
+.orders-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.admin-secondary{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:10px;padding:11px 17px;font-size:12px;font-weight:800}
+.admin-secondary:hover{background:#f6f7f9}
+.admin-secondary:disabled{opacity:.5;cursor:not-allowed}
+.sheet-sync-banner{background:#fff1cf;color:#845d00;border-radius:12px;padding:11px 15px;margin-bottom:16px;font-size:12px;font-weight:700;line-height:1.5}
+.sheet-sync-banner.error{background:#ffe5e2;color:#a13931}
+.sheet-sync-cell{display:grid;gap:6px;border-top:1px dashed #e4e8ed;padding-top:7px}
+@media(max-width:900px){.orders-actions{width:100%}.orders-actions>*{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center}}
+.mobile-buy-promise{margin:0 0 6px;font-size:11px;line-height:1.4;color:var(--muted);text-align:center;width:100%}

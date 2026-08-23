@@ -2,7 +2,8 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import { createSign } from "node:crypto";
-import { listOrders, listOrderSheetStates, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
+import { listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
+import { log, errorMessage } from "./log";
 import { frenchAgeLabel } from "./product-size";
 import type { Order, OrderStatus } from "./types";
 
@@ -55,6 +56,10 @@ const SHEET_STATES: Record<string, OrderStatus> = {
   NEEDS_HUMAN: "to_confirm",
   NEEDS_REVIEW: "to_confirm",
   HUMAN: "to_confirm",
+  QUEUED: "new",
+  AGENT_TALKING: "to_confirm",
+  SCHEDULED: "to_confirm",
+  NO_REPLY: "to_confirm",
   CONFIRMED: "confirmed",
   CONFIRME: "confirmed",
   ACCEPTED: "confirmed",
@@ -63,9 +68,13 @@ const SHEET_STATES: Record<string, OrderStatus> = {
   PROCESSING: "preparing",
   ZR_CREATED: "preparing",
   PARCEL_CREATED: "preparing",
+  ZR_ERROR: "confirmed",
   SHIPPED: "shipped",
   IN_TRANSIT: "shipped",
   OUT_FOR_DELIVERY: "shipped",
+  ARRIVED_WILAYA: "shipped",
+  MISSED_ATTEMPT: "shipped",
+  STALLED: "shipped",
   EXPEDIEE: "shipped",
   DELIVERED: "delivered",
   LIVREE: "delivered",
@@ -289,16 +298,49 @@ export async function syncOrderStatesFromGoogleSheet(): Promise<{ orders: Order[
 }
 
 export async function queueOrderGoogleSheetSync(order: Order): Promise<void> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  // Best-effort inline export. Whatever happens here, the durable outbox
+  // (orders.sheet_synced_at) is the thing that guarantees the row lands: three
+  // retries over 1.5 s used to be the only attempt, and a ten-second Google
+  // outage silently lost the order for the confirmation agent.
+  try {
+    await appendOrderToGoogleSheet(order);
+    await markOrderSheetSynced(order.id);
+  } catch (error) {
+    const message = errorMessage(error, "Export Google Sheets impossible.");
+    // Not fatal: the row stays in the outbox and the cron will retry it.
+    log.warn("sheet.export_deferred", { orderNumber: order.orderNumber, message });
+    await recordOrderSheetFailure(order.id, message).catch(() => undefined);
+  }
+}
+
+export type SheetOutboxResult = { attempted: number; exported: number; alreadyPresent: number; disabled: number; failed: number; errors: string[] };
+
+/**
+ * Drains the export outbox. Idempotent by design: appendOrderToGoogleSheet
+ * dedupes on order_number, so re-running costs one read and never doubles a row.
+ */
+export async function drainOrderSheetOutbox(limit = 50): Promise<SheetOutboxResult> {
+  const pending = await listOrdersPendingSheetSync(limit);
+  const result: SheetOutboxResult = { attempted: pending.length, exported: 0, alreadyPresent: 0, disabled: 0, failed: 0, errors: [] };
+
+  for (const order of pending) {
     try {
-      await appendOrderToGoogleSheet(order);
-      return;
-    } catch (error) {
-      if (attempt === 3) {
-        console.error("Google Sheets order sync failed", error instanceof Error ? error.message : error);
-        return;
+      const outcome = await appendOrderToGoogleSheet(order);
+      if (outcome === "disabled") {
+        // No spreadsheet configured: leave the row queued rather than marking it
+        // exported, otherwise configuring Sheets later would skip every order.
+        result.disabled += 1;
+        continue;
       }
-      await new Promise((resolve) => setTimeout(resolve, attempt * 500));
+      if (outcome === "already_exists") result.alreadyPresent += 1; else result.exported += 1;
+      await markOrderSheetSynced(order.id);
+    } catch (error) {
+      const message = errorMessage(error, "Export Google Sheets impossible.");
+      log.actionRequired("sheet_export_failed", { orderNumber: order.orderNumber, attempts: order.sheetAttempts + 1, message });
+      result.failed += 1;
+      if (result.errors.length < 5) result.errors.push(`${order.orderNumber}: ${message.slice(0, 200)}`);
+      await recordOrderSheetFailure(order.id, message).catch(() => undefined);
     }
   }
+  return result;
 }

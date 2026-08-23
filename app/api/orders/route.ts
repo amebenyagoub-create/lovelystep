@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
-import { allowOrderAttempt, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
+import { allowOrderAttempt, allowOrderForPhone, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { shippingAfterPromotion } from "@/lib/free-shipping";
 import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
 import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
@@ -10,8 +10,6 @@ import { sendPurchaseEvent } from "@/lib/meta/purchase";
 import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
 import { metaRequestContext } from "@/lib/meta/request";
-import { whatsappConfig } from "@/lib/whatsapp/config";
-import { buildWhatsAppConfirmationUrl } from "@/lib/whatsapp/link";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -40,6 +38,11 @@ export async function POST(request: Request) {
   }
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 20) {
     return NextResponse.json({ error: "Votre panier est vide ou invalide." }, { status: 400 });
+  }
+  // Per-IP throttling above does not stop a rotating-IP flood of fake COD orders,
+  // each of which reserves stock and costs a confirmation message.
+  if (!await allowOrderForPhone(phone)) {
+    return NextResponse.json({ error: "Plusieurs commandes sont déjà en attente de confirmation avec ce numéro. Confirmez-les avant d’en passer une nouvelle." }, { status: 429 });
   }
 
   const requestedItems = new Map<string, Required<Pick<RequestItem, "productId" | "size" | "quantity">> & { color: string }>();
@@ -98,8 +101,7 @@ export async function POST(request: Request) {
     after(() => sendPurchaseEvent(order, metaContext));
     after(() => queueOrderGoogleSheetSync(order));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
-    const confirmationUrl = buildWhatsAppConfirmationUrl(whatsappConfig().businessNumber, order.orderNumber, body.locale === "ar" || body.locale === "en" ? body.locale : "fr");
-    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber), whatsappConfirmationUrl: confirmationUrl }, { status: 201 });
+    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });
   } catch (error) {
     if (error instanceof StockUnavailableError) return NextResponse.json({ error: "Le stock vient de changer. Actualisez votre panier puis réessayez." }, { status: 409 });
     return NextResponse.json({ error: "La commande n’a pas pu être enregistrée." }, { status: 500 });

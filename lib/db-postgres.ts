@@ -150,7 +150,7 @@ function mapOrder(row: Row): Order {
     phone:String(row.phone),city:String(row.city),wilayaCode:String(row.wilaya_code??""),wilayaName:String(row.wilaya_name??row.city??""),commune:String(row.commune??row.city??""),address:String(row.address??""),
     deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
     deliverySyncError:row.delivery_sync_error==null?null:String(row.delivery_sync_error),notes:String(row.notes??""),status:String(row.status) as OrderStatus,items:parseJson<OrderItem[]>(row.items_json,[]),
-    subtotalCents:Number(row.subtotal_cents),shippingCents:Number(row.shipping_cents),totalCents:Number(row.total_cents),statusHistory:[],refunds:[],deliveryCost:null,attribution:null,createdAt:timestamp(row.created_at),updatedAt:timestamp(row.updated_at) };
+    subtotalCents:Number(row.subtotal_cents),shippingCents:Number(row.shipping_cents),totalCents:Number(row.total_cents),statusHistory:[],refunds:[],deliveryCost:null,attribution:null,sheetSyncedAt:row.sheet_synced_at==null?null:timestamp(row.sheet_synced_at),sheetAttempts:Number(row.sheet_attempts??0),sheetLastError:row.sheet_last_error==null?null:String(row.sheet_last_error),createdAt:timestamp(row.created_at),updatedAt:timestamp(row.updated_at) };
 }
 function mapAttribution(row: Row): OrderAttribution { return { orderId:Number(row.order_id),isMetaLastTouch:Boolean(row.is_meta_last_touch),isMetaFirstTouch:Boolean(row.is_meta_first_touch),
   utmSource:row.utm_source==null?null:String(row.utm_source),utmMedium:row.utm_medium==null?null:String(row.utm_medium),utmCampaign:row.utm_campaign==null?null:String(row.utm_campaign),
@@ -186,6 +186,91 @@ async function enrichOrders(orders: Order[]): Promise<Order[]> {
 export async function listOrders(): Promise<Order[]> { return enrichOrders((await rows("SELECT * FROM orders ORDER BY created_at DESC LIMIT 250")).map(mapOrder)); }
 export async function listOrderSheetStates(): Promise<Map<number, string>> { return new Map((await rows("SELECT id,google_sheet_state FROM orders WHERE google_sheet_state IS NOT NULL")).map((row) => [Number(row.id), String(row.google_sheet_state)])); }
 export async function rememberOrderSheetState(id: number, state: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET google_sheet_state=$1 WHERE id=$2", [state, id]); }
+
+/**
+ * Google Sheet outbox.
+ *
+ * An order is only real to the confirmation agent once its row exists in the
+ * Sheet. The inline export in POST /api/orders is best-effort; these helpers are
+ * what make it durable. `sheet_synced_at IS NULL` is the queue.
+ */
+/** Cheap liveness probe for /api/health. Never throws. */
+export async function databasePing(): Promise<boolean> {
+  try {
+    await ensureDatabase();
+    await pool.query("SELECT 1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function listOrdersPendingSheetSync(limit = 50): Promise<Order[]> {
+  const capped = Math.min(Math.max(1, Math.floor(limit)), 200);
+  // Exponential-ish backoff so a permanently broken row does not burn the whole
+  // budget every five minutes: attempt n waits n*2 minutes before being retried.
+  return (await rows(
+    `SELECT * FROM orders
+      WHERE sheet_synced_at IS NULL
+        AND updated_at < NOW() - (LEAST(sheet_attempts, 15) * INTERVAL '2 minutes')
+      ORDER BY created_at ASC LIMIT $1`, [capped])).map(mapOrder);
+}
+export async function markOrderSheetSynced(id: number): Promise<void> {
+  await ensureDatabase();
+  await pool.query("UPDATE orders SET sheet_synced_at=NOW(), sheet_last_error=NULL WHERE id=$1", [id]);
+}
+export async function recordOrderSheetFailure(id: number, message: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query("UPDATE orders SET sheet_attempts=sheet_attempts+1, sheet_last_error=$1, updated_at=NOW() WHERE id=$2",
+    [message.slice(0, 500), id]);
+}
+export async function resetOrderSheetSync(id: number): Promise<void> {
+  // The manual retry button: clears the backoff so the next drain picks it up now.
+  await ensureDatabase();
+  await pool.query("UPDATE orders SET sheet_synced_at=NULL, sheet_attempts=0, sheet_last_error=NULL, updated_at=NOW()-INTERVAL '1 hour' WHERE id=$1", [id]);
+}
+export async function sheetOutboxDepth(): Promise<{ pending: number; failing: number; oldestPendingAt: string | null }> {
+  const result = await rows(`SELECT
+      count(*) FILTER (WHERE sheet_synced_at IS NULL)::int AS pending,
+      count(*) FILTER (WHERE sheet_synced_at IS NULL AND sheet_attempts >= 3)::int AS failing,
+      min(created_at) FILTER (WHERE sheet_synced_at IS NULL) AS oldest
+    FROM orders`);
+  const row = result[0] ?? {};
+  return {
+    pending: Number(row.pending ?? 0),
+    failing: Number(row.failing ?? 0),
+    oldestPendingAt: row.oldest == null ? null : timestamp(row.oldest),
+  };
+}
+
+/**
+ * COD abuse guard, per phone number.
+ *
+ * The per-IP limit does not stop the cheap attack: one script, rotating IPs,
+ * placing unconfirmable orders that each reserve stock and cost a WhatsApp
+ * message. A real customer almost never has three orders still unconfirmed in
+ * the same day, so that is where the line sits. Confirmed and closed orders are
+ * not counted, so a genuine repeat buyer is never blocked.
+ */
+export async function allowOrderForPhone(phone: string): Promise<boolean> {
+  const result = await rows(
+    `SELECT count(*)::int count FROM orders
+      WHERE phone=$1 AND created_at > NOW()-INTERVAL '24 hours'
+        AND status IN ('new','to_confirm')`, [phone]);
+  return Number(result[0].count) < 3;
+}
+
+/** Customer sign-in throttling. Shares login_attempts with the admin lockout via `scope`. */
+export async function isCustomerLoginAllowed(phone: string, ip: string): Promise<boolean> {
+  const result = await rows(
+    "SELECT count(*)::int count FROM login_attempts WHERE scope='customer' AND email=$1 AND ip=$2 AND succeeded=FALSE AND created_at>NOW()-INTERVAL '15 minutes'",
+    [phone, ip]);
+  return Number(result[0].count) < 8;
+}
+export async function insertCustomerLoginAttempt(phone: string, ip: string, succeeded: boolean): Promise<void> {
+  await ensureDatabase();
+  await pool.query("INSERT INTO login_attempts (email,ip,succeeded,scope) VALUES ($1,$2,$3,'customer')", [phone, ip, succeeded]);
+}
 export class StockUnavailableError extends Error { constructor(){ super("STOCK_UNAVAILABLE"); } }
 function aggregateVariantSizes(variants: ProductVariant[]): ProductSize[] { const sizes=new Map<string,ProductSize>(); for(const variant of variants){const current=sizes.get(variant.size);const stock=Math.max(0,Math.floor(Number(variant.stock)||0));if(current)current.stock+=stock;else sizes.set(variant.size,{label:variant.size,stock,age:variant.age,weight:variant.weight,height:variant.height});} return [...sizes.values()]; }
 async function changeStock(client: PoolClient, items: OrderItem[], direction: -1|1): Promise<void> {
@@ -400,7 +485,7 @@ export async function audit(adminId:number|null,action:string,entityType?:string
 // Authentication persistence. Password hashing and cookies remain in auth.ts.
 export async function hasAdminRecord():Promise<boolean>{return Boolean((await rows("SELECT 1 FROM admins LIMIT 1"))[0]);}
 export async function insertAdmin(email:string,passwordHash:string):Promise<number>{await ensureDatabase();const result=await pool.query("INSERT INTO admins (email,password_hash) VALUES ($1,$2) RETURNING id",[email,passwordHash]);return Number(result.rows[0].id);}
-export async function isAdminLoginAllowed(email:string,ip:string):Promise<boolean>{const result=await rows("SELECT count(*)::int count FROM login_attempts WHERE LOWER(email)=LOWER($1) AND ip=$2 AND succeeded=FALSE AND created_at>NOW()-INTERVAL '15 minutes'",[email,ip]);return Number(result[0].count)<5;}
+export async function isAdminLoginAllowed(email:string,ip:string):Promise<boolean>{const result=await rows("SELECT count(*)::int count FROM login_attempts WHERE scope='admin' AND LOWER(email)=LOWER($1) AND ip=$2 AND succeeded=FALSE AND created_at>NOW()-INTERVAL '15 minutes'",[email,ip]);return Number(result[0].count)<5;}
 export async function insertLoginAttempt(email:string,ip:string,succeeded:boolean):Promise<void>{await ensureDatabase();await pool.query("INSERT INTO login_attempts (email,ip,succeeded) VALUES ($1,$2,$3)",[email,ip,succeeded]);await pool.query("DELETE FROM login_attempts WHERE created_at<NOW()-INTERVAL '2 days'");}
 export async function getAdminCredentialRecord(email:string):Promise<{id:number;email:string;passwordHash:string}|null>{const result=await rows("SELECT id,email,password_hash FROM admins WHERE LOWER(email)=LOWER($1)",[email]);return result[0]?{id:Number(result[0].id),email:String(result[0].email),passwordHash:String(result[0].password_hash)}:null;}
 export async function insertAdminSession(adminId:number,tokenHash:string,csrfToken:string,expires:Date):Promise<void>{await ensureDatabase();await pool.query("DELETE FROM admin_sessions WHERE expires_at<NOW()");await pool.query("INSERT INTO admin_sessions (admin_id,token_hash,csrf_token,expires_at) VALUES ($1,$2,$3,$4)",[adminId,tokenHash,csrfToken,expires]);await pool.query("UPDATE admins SET last_login_at=NOW() WHERE id=$1",[adminId]);}

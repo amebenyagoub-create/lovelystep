@@ -114,6 +114,9 @@ export type Order = {
   refunds: OrderRefund[];
   deliveryCost: OrderDeliveryCost | null;
   attribution: OrderAttribution | null;
+  sheetSyncedAt: string | null;
+  sheetAttempts: number;
+  sheetLastError: string | null;
   createdAt: string;
   updatedAt: string;
 };

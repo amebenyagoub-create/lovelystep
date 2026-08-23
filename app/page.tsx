@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Storefront from "./storefront";
 import StoreTracking from "./store-tracking";
 import { algeriaWilayas } from "@/lib/algeria";
@@ -6,6 +7,8 @@ import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
 import { toPublicProduct } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 export default async function Page() {
   const [products,settings,deliveryRates]=await Promise.all([listProducts(),getStoreSettings(),listDeliveryRates()]);

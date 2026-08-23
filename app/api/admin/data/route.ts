@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listImportJobs, listOrders, listProducts } from "@/lib/db-postgres";
+import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listImportJobs, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
 import { syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
+import { log, errorMessage } from "@/lib/log";
 import { metaStatus } from "@/lib/meta/config";
-import { whatsappStatus } from "@/lib/whatsapp/config";
 import { getZrExpressStatus } from "@/lib/zrexpress";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +12,18 @@ export async function GET() {
   const session = await requireAdminApi();
   if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
   let orders: Awaited<ReturnType<typeof listOrders>>;
+  // The scheduled job at /api/cron/sheet-sync is what keeps this current; the
+  // call here only makes the page you are looking at as fresh as possible.
+  let sheetSync: { unknownStates: string[]; error: string | null } = { unknownStates: [], error: null };
   try {
     const sync = await syncOrderStatesFromGoogleSheet();
     orders = sync.orders;
-    if (sync.unknownStates.length) console.warn("Google Sheets states ignored", sync.unknownStates);
+    sheetSync = { unknownStates: sync.unknownStates, error: null };
+    if (sync.unknownStates.length) log.actionRequired("sheet_states_unknown", { states: sync.unknownStates });
   } catch (error) {
-    console.error("Google Sheets state sync failed", error instanceof Error ? error.message : error);
+    const message = errorMessage(error, "Synchronisation Google Sheets impossible.");
+    log.actionRequired("sheet_state_pull_failed", { message });
+    sheetSync = { unknownStates: [], error: message };
     orders = await listOrders();
   }
   const [stats, products, imports, storeSettings, deliveryRates, deliveryIntegration, expenses] = await Promise.all([
@@ -31,8 +37,8 @@ export async function GET() {
       pixelConfigured: metaStatus().pixelConfigured,
       insightsConfigured: Boolean(process.env.META_AD_ACCOUNT_ID && process.env.META_ACCESS_TOKEN),
     },
-    whatsapp: whatsappStatus(),
     zrExpress: getZrExpressStatus(),
+    sheetSync: { ...sheetSync, depth: await sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })) },
     products, orders, imports, storeSettings, deliveryRates, deliveryIntegration, expenses,
   });
 }

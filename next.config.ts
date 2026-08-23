@@ -17,7 +17,11 @@ const nextConfig: NextConfig = {
       "form-action 'self'",
       "frame-ancestors 'none'",
     ].join("; ");
+    // HSTS is only sent in production: forcing it in development would pin
+    // localhost to https in the browser for a year.
+    const strictTransport = development ? [] : [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }];
     return [{ source: "/:path*", headers: [
+      ...strictTransport,
       { key: "Content-Security-Policy", value: csp },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       { key: "X-Content-Type-Options", value: "nosniff" },

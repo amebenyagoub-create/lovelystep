@@ -55,8 +55,8 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
         {
           title: "Confirmation par WhatsApp",
           paragraphs: [
-            "Après votre commande, vous pouvez cliquer sur « Confirmer sur WhatsApp ». C'est vous qui écrivez le premier message : nous ne vous contactons jamais spontanément sur WhatsApp, et nous n'envoyons aucun rappel automatique.",
-            "L'échange passe par WhatsApp Cloud API, un service de Meta. Nous conservons l'identifiant technique du message, l'action choisie et la commande concernée, afin de ne pas traiter deux fois la même réponse. Le contenu de la conversation n'est pas dupliqué dans notre base.",
+            "Après votre commande, notre agent de confirmation peut vous contacter sur WhatsApp au numéro fourni afin de vérifier les informations et votre décision avant l'expédition.",
+            "L'échange passe par WhatsApp Cloud API, un service de Meta. Les identifiants techniques, les actions choisies et les messages nécessaires au suivi de la commande peuvent être conservés afin de traiter correctement votre réponse.",
           ],
         },
         {
@@ -171,8 +171,8 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
         {
           title: "WhatsApp confirmation",
           paragraphs: [
-            "After ordering you may tap “Confirm on WhatsApp”. You write the first message: we never contact you on WhatsApp on our own initiative, and we send no automated reminders.",
-            "The exchange runs on WhatsApp Cloud API, a Meta service. We store the message's technical identifier, the action you chose and the related order, so the same reply is never processed twice. The conversation itself is not duplicated in our database.",
+            "After your order, our confirmation agent may contact you on WhatsApp at the number provided to verify the information and your decision before shipment.",
+            "The exchange runs on WhatsApp Cloud API, a Meta service. Technical identifiers, selected actions and messages required for order follow-up may be retained so your reply is processed correctly.",
           ],
         },
         {
@@ -287,8 +287,8 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
         {
           title: "التأكيد عبر واتساب",
           paragraphs: [
-            "بعد الطلب يمكنكم الضغط على «التأكيد عبر واتساب». أنتم من يرسل الرسالة الأولى: لا نراسلكم على واتساب من تلقاء أنفسنا، ولا نرسل أي تذكير آلي.",
-            "يمر التبادل عبر WhatsApp Cloud API التابع لـ Meta. نحتفظ بالمعرّف التقني للرسالة والإجراء المختار والطلب المعني، حتى لا تُعالج الإجابة مرتين. أما محتوى المحادثة فلا يُنسخ في قاعدة بياناتنا.",
+            "بعد تسجيل الطلب، قد يتواصل معكم مساعد التأكيد عبر واتساب على الرقم الذي قدمتموه للتحقق من المعلومات وقراركم قبل الشحن.",
+            "يمر التبادل عبر WhatsApp Cloud API التابع لـ Meta. قد نحتفظ بالمعرّفات التقنية والإجراءات المختارة والرسائل اللازمة لمتابعة الطلب ومعالجة ردكم بشكل صحيح.",
           ],
         },
         {

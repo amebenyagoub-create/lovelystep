@@ -5,6 +5,8 @@ import { productMetaAutomationPlan, runDeletedProductMetaAutomation, runProductM
 import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant } from "@/lib/types";
 
 const statuses: ProductStatus[] = ["draft", "published", "archived"];
+/** Markers the AI importer leaves behind for a human to replace. */
+const PLACEHOLDER_COPY = /\b(import(?:é|e)?\s+IA|produit\s+import(?:é|e)?)\b.*\bà\s+v(?:é|e)rifier\b|\bà\s+v(?:é|e)rifier\b/i;
 const validImage = (value: string) => (/^\/api\/media\/(products|imports|size-guides)\/[a-zA-Z0-9._/-]+$/.test(value) || /^\/images\/[a-zA-Z0-9._/-]+$/.test(value)) && !value.includes("..") && !value.includes("//");
 
 function cleanVariants(value: unknown): ProductVariant[] {
@@ -92,6 +94,23 @@ export async function POST(request: Request) {
     : {};
   if (status === "published" && (priceCents < 1 || images.length === 0 || sizes.length === 0)) {
     return NextResponse.json({ error: "Un produit publié doit avoir un prix, une image et au moins une taille." }, { status: 400 });
+  }
+
+  // The AI importer stamps drafts with "Import IA à vérifier" and can fall back to
+  // "Produit importé à vérifier" for the name. Those are notes to you, not copy for
+  // a shopper — and one of them reached a live product page. Publishing is refused
+  // until they are gone; saving as a draft stays free.
+  if (status === "published") {
+    const placeholderFields: Array<[string, string]> = [
+      ["le nom", name],
+      ["le badge", String(body.badge || "")],
+      ["la description courte", String(body.shortDescription || "")],
+      ["la description", String(body.description || "")],
+    ];
+    const offending = placeholderFields.filter(([, value]) => PLACEHOLDER_COPY.test(value)).map(([label]) => label);
+    if (offending.length) {
+      return NextResponse.json({ error: `Texte d’import automatique encore présent dans ${offending.join(", ")}. Corrigez-le avant de publier.` }, { status: 400 });
+    }
   }
 
   const testimonials = Array.isArray(body.testimonials) ? body.testimonials.flatMap((item) => {
