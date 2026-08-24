@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getProductBySlug, listProducts } from "@/lib/db-postgres";
+import { cachedProductBySlug, cachedProducts } from "@/lib/public-cache";
 import ProductDetail from "./product-detail";
 import StoreTracking from "@/app/store-tracking";
 import { isProductOutOfStock } from "@/lib/product-stock";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const product = await getProductBySlug(slug);
+  const product = await cachedProductBySlug(slug);
   if (!product) return {};
   return {
     title: product.seoTitle || product.name,
@@ -57,9 +57,9 @@ function productJsonLd(product: Product, origin: string) {
 }
 
 export default async function ProductPage({ params }: { params: Promise<{ slug: string }> }) {
-  const product = await getProductBySlug((await params).slug);
+  const product = await cachedProductBySlug((await params).slug);
   if (!product) notFound();
-  const related = (await listProducts()).filter((item) => item.id !== product.id).slice(0, 3);
+  const related = (await cachedProducts()).filter((item) => item.id !== product.id).slice(0, 3);
   const origin = siteUrl() || "https://lovelystep.com";
   return <>
     <script type="application/ld+json" suppressHydrationWarning dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd(product, origin)) }} />

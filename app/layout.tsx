@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
-import "@fontsource/fredoka/600.css";
-import "@fontsource/nunito/400.css";
-import "@fontsource/nunito/700.css";
-import "@fontsource/nunito/800.css";
+// Latin subsets only. The full files declare five subsets each (cyrillic, greek,
+// vietnamese and two latin ranges) — twenty @font-face rules of render-blocking
+// CSS for ranges this store never renders. Arabic is unaffected: neither Fredoka
+// nor Nunito ships an Arabic subset, so Arabic already falls back to the system
+// font either way.
+import "@fontsource/fredoka/latin-600.css";
+import "@fontsource/nunito/latin-400.css";
+import "@fontsource/nunito/latin-700.css";
+import "@fontsource/nunito/latin-800.css";
 import "./globals.css";
 import "./admin-extra.css";
 // Tracking lives in app/store-tracking.tsx, mounted by the public store pages only.
@@ -25,7 +30,7 @@ export const metadata: Metadata = {
     icon: [{ url: "/favicon.png", type: "image/png", sizes: "512x512" }],
     apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
   },
-  openGraph: { type: "website", siteName: "Lovely Step", title: "Tiny Steps, Big Love", description: "Vêtements enfants doux et pratiques avec paiement à la livraison.", images: [{ url: "/og.png", width: 1732, height: 909, alt: "Lovely Step" }] },
+  openGraph: { type: "website", siteName: "Lovely Step", title: "Tiny Steps, Big Love", description: "Vêtements enfants doux et pratiques avec paiement à la livraison.", images: [{ url: "/og.png", width: 1200, height: 630, alt: "Lovely Step" }] },
   twitter: { card: "summary_large_image", title: "Lovely Step — Tiny Steps, Big Love", description: "Vêtements enfants avec paiement à la livraison.", images: ["/og.png"] },
 };
 

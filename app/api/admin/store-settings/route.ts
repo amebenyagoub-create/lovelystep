@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit, DEFAULT_STORE_SETTINGS, saveStoreSettings } from "@/lib/db-postgres";
+import { revalidateTag } from "next/cache";
+import { CATALOG_TAG } from "@/lib/public-cache";
 import type { LocalizedText, StoreSettings } from "@/lib/types";
 
 const validColor = (value: string) => /^#[0-9A-F]{6}$/i.test(value);
@@ -27,6 +29,7 @@ export async function POST(request: Request) {
     theme: { navy: theme.navy.toUpperCase(), coral: theme.coral.toUpperCase(), cream: theme.cream.toUpperCase(), sand: theme.sand.toUpperCase(), background: theme.background.toUpperCase() },
   };
   await saveStoreSettings(settings);
+  revalidateTag(CATALOG_TAG);
   await audit(session.adminId, "storefront.update", "settings", "storefront");
   return NextResponse.json({ settings });
 }

@@ -1,4 +1,6 @@
 import { after, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
+import { CATALOG_TAG } from "@/lib/public-cache";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit, deleteProduct, getProductById, saveProduct } from "@/lib/db-postgres";
 import { productMetaAutomationPlan, runDeletedProductMetaAutomation, runProductMetaAutomation } from "@/lib/meta/product-automation";
@@ -157,6 +159,7 @@ export async function POST(request: Request) {
       testimonials,
       translations,
     });
+    revalidateTag(CATALOG_TAG);
     await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
     const metaAutomation = productMetaAutomationPlan(previous, product);
     if (metaAutomation.catalog || metaAutomation.pagePost || metaAutomation.instagramPost) {
@@ -181,6 +184,7 @@ export async function DELETE(request: Request) {
   try {
     const deleted = await deleteProduct(id);
     if (!deleted) return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
+    revalidateTag(CATALOG_TAG);
     await audit(session.adminId, "product.delete", "product", String(id), { name: deleted.name, slug: deleted.slug });
     if (process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true") {
       after(() => runDeletedProductMetaAutomation(deleted));

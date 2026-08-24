@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit } from "@/lib/db-postgres";
 import { syncZrExpressDeliveryRates } from "@/lib/zrexpress";
+import { revalidateTag } from "next/cache";
+import { CATALOG_TAG } from "@/lib/public-cache";
 
 export async function POST(request: Request) {
   const session = await requireAdminApi();
@@ -13,6 +15,7 @@ export async function POST(request: Request) {
       syncedWilayas: result.syncedWilayas,
       ignoredEntries: result.ignoredEntries,
     });
+    revalidateTag(CATALOG_TAG);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Synchronisation ZR Express impossible.";

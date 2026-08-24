@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { after } from "next/server";
+import { revalidateTag } from "next/cache";
+import { CATALOG_TAG } from "@/lib/public-cache";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
 import { allowOrderAttempt, allowOrderForPhone, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
-import { shippingAfterPromotion } from "@/lib/free-shipping";
-import { getFreeShippingThresholdCents } from "@/lib/free-shipping-server";
 import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
 import { purchaseEventId } from "@/lib/meta/events";
@@ -89,8 +89,8 @@ export async function POST(request: Request) {
   const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
-  const regularShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
-  const shippingCents = shippingAfterPromotion(subtotalCents, regularShippingCents, getFreeShippingThresholdCents());
+  const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
+  const shippingCents = Number.isFinite(rawShippingCents) && rawShippingCents > 0 ? Math.round(rawShippingCents) : 0;
   try {
     const customer = await getCustomerSession();
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
@@ -99,6 +99,8 @@ export async function POST(request: Request) {
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
     after(() => persistOrderAttribution(order.id, attribution, metaContext));
     after(() => sendPurchaseEvent(order, metaContext));
+    // Stock just changed: the sold-out badge and the size picker must not lag.
+    revalidateTag(CATALOG_TAG);
     after(() => queueOrderGoogleSheetSync(order));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import LanguageSwitcher from "./language-switcher";
 import { parseStoredCart, type CartItem } from "@/lib/cart";
-import { hasFreeShipping, shippingAfterPromotion } from "@/lib/free-shipping";
 import { trackMeta } from "@/lib/meta-pixel";
 import { contentId } from "@/lib/meta/events";
 import { loadAttribution } from "@/lib/meta/attribution";
@@ -16,28 +15,10 @@ import { useLocale } from "@/lib/use-locale";
 
 const CART_KEY = "lovelystep_cart";
 
-const promotionCopy = {
-  fr: {
-    remaining: (amount: string) => `Plus que ${amount} pour profiter de la livraison gratuite.`,
-    unlocked: "Bravo, votre livraison est offerte !",
-    free: "Offerte",
-    progress: "Progression vers la livraison gratuite",
-    basedOnWilaya: "Selon la wilaya",
-  },
-  en: {
-    remaining: (amount: string) => `Add ${amount} more to unlock free delivery.`,
-    unlocked: "Great, your delivery is free!",
-    free: "Free",
-    progress: "Progress towards free delivery",
-    basedOnWilaya: "Based on wilaya",
-  },
-  ar: {
-    remaining: (amount: string) => `أضف ${amount} للاستفادة من التوصيل المجاني.`,
-    unlocked: "رائع، التوصيل مجاني!",
-    free: "مجاني",
-    progress: "التقدم نحو التوصيل المجاني",
-    basedOnWilaya: "حسب الولاية",
-  },
+const deliveryCopy = {
+  fr: { basedOnWilaya: "Selon la wilaya" },
+  en: { basedOnWilaya: "Based on wilaya" },
+  ar: { basedOnWilaya: "حسب الولاية" },
 } as const;
 
 function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "heart" | "shield" | "arrow" | "user" }) {
@@ -59,7 +40,7 @@ function trackCheckout(items: CartItem[]) {
   });
 }
 
-export default function Storefront({ products, settings, wilayas, deliveryRates, freeShippingThresholdCents }: { products: PublicProduct[]; settings: StoreSettings; wilayas: AlgeriaWilaya[]; deliveryRates: DeliveryRate[]; freeShippingThresholdCents: number }) {
+export default function Storefront({ products, settings, wilayas, deliveryRates }: { products: PublicProduct[]; settings: StoreSettings; wilayas: AlgeriaWilaya[]; deliveryRates: DeliveryRate[] }) {
   const { locale, setLocale, t, dir } = useLocale();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
@@ -103,11 +84,8 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
   const selectedWilaya = wilayas.find((wilaya) => wilaya.code === checkout.wilayaCode);
   const selectedRate = deliveryRates.find((rate) => rate.wilayaCode === checkout.wilayaCode && rate.active);
   const regularShipping = selectedRate ? (checkout.deliveryType === "office" ? selectedRate.officeCents : selectedRate.homeCents) : 0;
-  const freeShippingUnlocked = hasFreeShipping(subtotal, freeShippingThresholdCents);
-  const shipping = selectedRate ? shippingAfterPromotion(subtotal, regularShipping, freeShippingThresholdCents) : 0;
-  const freeShippingRemaining = Math.max(0, freeShippingThresholdCents - subtotal);
-  const freeShippingProgress = Math.min(100, Math.max(0, Math.round((subtotal / freeShippingThresholdCents) * 100)));
-  const freeDeliveryText = promotionCopy[locale];
+  const shipping = selectedRate ? Math.max(0, Math.round(regularShipping)) : 0;
+  const deliveryText = deliveryCopy[locale];
   const outOfStockLabel = locale === "ar" ? "نفد المخزون" : locale === "en" ? "Out of stock" : "Rupture de stock";
   const total = subtotal + shipping;
   const heroImage = !settings.heroImage || settings.heroImage === "/images/lovelystep-hero-v2.webp"
@@ -179,11 +157,11 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
     </header>
     <main>
       <section className="hero">
-        <div className="hero-backdrop" aria-hidden="true"><Image src={heroImage} alt="" fill priority sizes="100vw" unoptimized={heroImage.startsWith("/api/media/")} /></div>
+        <div className="hero-backdrop" aria-hidden="true"><Image src={heroImage} alt="" fill priority sizes="100vw" /></div>
         <div className="hero-copy"><span className="eyebrow">{text(settings.heroEyebrow)}</span><h1>{text(settings.heroTitle)} <em>{text(settings.heroAccent)}</em></h1><p>{text(settings.heroDescription)}</p><div className="hero-actions"><a className="primary-button" href="#nouveautes">{text(settings.primaryCta)}</a><a className="text-link" href="#notre-promesse">{t("promise")} <Icon name="arrow" /></a></div><div className="mini-trust"><span>✓ {t("noOnline")}</span><span>✓ {t("phoneConfirm")}</span></div></div>
       </section>
       <section className="trust-strip" id="notre-promesse">{[{ icon: "cash" as const, title: t("cod"), copy: t("codText") }, { icon: "truck" as const, title: t("tracked"), copy: t("trackedText") }, { icon: "heart" as const, title: t("children"), copy: t("childrenText") }, { icon: "shield" as const, title: t("exchange"), copy: t("exchangeText") }].map((item) => <article key={item.title}><Icon name={item.icon} /><div><strong>{item.title}</strong><span>{item.copy}</span></div></article>)}</section>
-      <section className="collection" id="nouveautes"><div className="section-heading"><div><span className="eyebrow">{t("favorites")}</span><h2>{t("collection")}</h2></div><p>{t("collectionText")}</p></div><div className="product-grid">{products.map((product) => { const firstColor = product.colors[0] || product.color; const image = product.colorImages[firstColor] || product.images[0] || "/images/soft-days.jpg"; const display = productText(product); const outOfStock = isProductOutOfStock(product); return <article className="product-card" key={product.id} id={product.category.toLowerCase()}><Link href={`/produits/${product.slug}`} className="product-image">{outOfStock ? <span className="badge badge-out-of-stock">{outOfStockLabel}</span> : product.badge && <span className="badge">{product.badge}</span>}<Image src={image} alt={display.name} fill sizes="(max-width: 700px) 50vw, 33vw" unoptimized={image.startsWith("/api/media/")} /></Link><div className="product-info"><div><span className="product-category">{product.category}</span><Link href={`/produits/${product.slug}`}><h3>{display.name}</h3></Link><p>{product.colors.length ? product.colors.join(" · ") : product.color}</p></div><div className="price-line"><strong>{money(product.priceCents)}</strong>{product.compareAtCents && <del>{money(product.compareAtCents)}</del>}</div><div className="card-actions"><Link className="secondary-button" href={`/produits/${product.slug}`}>{t("viewProduct")}</Link><button aria-label={outOfStock ? `${display.name} — ${outOfStockLabel}` : `${t("addToCart")} — ${display.name}`} disabled={outOfStock} onClick={() => add(product)}><Icon name="bag" /></button></div></div></article>; })}</div></section>
+      <section className="collection" id="nouveautes"><div className="section-heading"><div><span className="eyebrow">{t("favorites")}</span><h2>{t("collection")}</h2></div><p>{t("collectionText")}</p></div><div className="product-grid">{products.map((product) => { const firstColor = product.colors[0] || product.color; const image = product.colorImages[firstColor] || product.images[0] || "/images/soft-days.jpg"; const display = productText(product); const outOfStock = isProductOutOfStock(product); return <article className="product-card" key={product.id} id={product.category.toLowerCase()}><Link href={`/produits/${product.slug}`} className="product-image">{outOfStock ? <span className="badge badge-out-of-stock">{outOfStockLabel}</span> : product.badge && <span className="badge">{product.badge}</span>}<Image src={image} alt={display.name} fill sizes="(max-width: 700px) 50vw, 33vw" /></Link><div className="product-info"><div><span className="product-category">{product.category}</span><Link href={`/produits/${product.slug}`}><h3>{display.name}</h3></Link><p>{product.colors.length ? product.colors.join(" · ") : product.color}</p></div><div className="price-line"><strong>{money(product.priceCents)}</strong>{product.compareAtCents && <del>{money(product.compareAtCents)}</del>}</div><div className="card-actions"><Link className="secondary-button" href={`/produits/${product.slug}`}>{t("viewProduct")}</Link><button aria-label={outOfStock ? `${display.name} — ${outOfStockLabel}` : `${t("addToCart")} — ${display.name}`} disabled={outOfStock} onClick={() => add(product)}><Icon name="bag" /></button></div></div></article>; })}</div></section>
       <section className="story"><div><span className="eyebrow">Tiny Steps, Big Love</span><h2>{text(settings.storyTitle)}</h2><p>{text(settings.storyDescription)}</p><a href="#nouveautes" className="primary-button">{t("findOutfit")}</a></div><Image src="/images/little-explorer.jpg" alt="Lovely Step" width={700} height={700} /></section>
     </main>
     <footer><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={120} height={120} /><p>Tiny Steps, Big Love</p><small>© {new Date().getFullYear()} Lovely Step. {t("rights")}</small><small>{t("legalEntity")}</small><nav className="legal-links"><Link href="/confidentialite">{t("privacy")}</Link><Link href="/suppression-donnees">{t("dataDeletion")}</Link><Link href="/mentions-legales">{t("legalNotices")}</Link></nav><Link href="/admin/login" className="admin-link">Administration</Link></footer>
@@ -199,26 +177,22 @@ export default function Storefront({ products, settings, wilayas, deliveryRates,
       <aside className="cart-drawer" aria-label={t("cart")}>
         <div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>
         {cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <>
-          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} unoptimized={item.image.startsWith("/api/media/")} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div>
-          <div className={`free-shipping-offer${freeShippingUnlocked ? " unlocked" : ""}`}>
-            <div className="free-shipping-message"><span><Icon name="truck" /></span><strong>{freeShippingUnlocked ? freeDeliveryText.unlocked : freeDeliveryText.remaining(money(freeShippingRemaining))}</strong></div>
-            <div className="free-shipping-progress" role="progressbar" aria-label={freeDeliveryText.progress} aria-valuemin={0} aria-valuemax={100} aria-valuenow={freeShippingProgress}><i style={{ "--promotion-progress": `${freeShippingProgress}%` } as CSSProperties} /></div>
-          </div>
-          <div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong className={freeShippingUnlocked ? "free-delivery-label" : ""}>{freeShippingUnlocked ? freeDeliveryText.free : freeDeliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
+          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div>
+          <div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{deliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
         </>}
       </aside>
     </>}
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
-      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} unoptimized={item.image.startsWith("/api/media/")} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(item.unitPriceCents * item.quantity)}</b></div>)}</div>}
+      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(item.unitPriceCents * item.quantity)}</b></div>)}</div>}
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
         <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
         <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend><label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home" })} /> <Icon name="truck" /> {t("home")}</label><label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> {t("office")}</label></fieldset>
         <label>{t("note")}<textarea value={checkout.notes} onChange={(event) => setCheckout({ ...checkout, notes: event.target.value })} rows={3} /></label>
-        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b className={selectedRate && freeShippingUnlocked ? "free-shipping-fee" : ""}>{selectedRate ? freeShippingUnlocked ? <><s>{money(regularShipping)}</s>{freeDeliveryText.free}</> : money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{t("orderHelp")}</small>
+        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{t("orderHelp")}</small>
       </form>}
     </section></div>}
     {accountOpen && <AccountModal customer={customer} wilayas={wilayas} locale={locale} t={t} onClose={() => setAccountOpen(false)} onCustomer={(value) => { setCustomer(value); setCheckout((state) => ({ ...state, fullName: `${value.firstName} ${value.lastName}`.trim(), phone: value.phone, wilayaCode: value.wilayaCode, commune: value.commune })); }} onLogout={() => { setCustomer(null); setCheckout(emptyCheckout); }} />}
