@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   if (typeof body.disabled !== "boolean") return NextResponse.json({ error: "Valeur invalide." }, { status: 400 });
 
   await setTrackingDisabledByAdmin(body.disabled);
-  revalidateTag(CATALOG_TAG);
+  revalidateTag(CATALOG_TAG, { expire: 0 });
   await audit(session.adminId, body.disabled ? "meta.tracking.disable" : "meta.tracking.enable", "meta", "tracking");
   return NextResponse.json({
     ok: true,

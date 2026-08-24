@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     rates.push({ wilayaCode: wilaya.code, wilayaNameFr: wilaya.nameFr, wilayaNameAr: wilaya.nameAr, homeCents, officeCents, active: rate.active !== false });
   }
   const saved = await saveDeliveryRates(rates);
-  revalidateTag(CATALOG_TAG);
+  revalidateTag(CATALOG_TAG, { expire: 0 });
   await audit(session.adminId, "delivery.rates.update", "settings", "delivery_rates", { count: rates.length });
   return NextResponse.json({ rates: saved });
 }

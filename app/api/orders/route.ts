@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     after(() => persistOrderAttribution(order.id, attribution, metaContext));
     after(() => sendPurchaseEvent(order, metaContext));
     // Stock just changed: the sold-out badge and the size picker must not lag.
-    revalidateTag(CATALOG_TAG);
+    revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });

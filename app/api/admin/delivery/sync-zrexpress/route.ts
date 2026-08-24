@@ -15,7 +15,7 @@ export async function POST(request: Request) {
       syncedWilayas: result.syncedWilayas,
       ignoredEntries: result.ignoredEntries,
     });
-    revalidateTag(CATALOG_TAG);
+    revalidateTag(CATALOG_TAG, { expire: 0 });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Synchronisation ZR Express impossible.";

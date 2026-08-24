@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     theme: { navy: theme.navy.toUpperCase(), coral: theme.coral.toUpperCase(), cream: theme.cream.toUpperCase(), sand: theme.sand.toUpperCase(), background: theme.background.toUpperCase() },
   };
   await saveStoreSettings(settings);
-  revalidateTag(CATALOG_TAG);
+  revalidateTag(CATALOG_TAG, { expire: 0 });
   await audit(session.adminId, "storefront.update", "settings", "storefront");
   return NextResponse.json({ settings });
 }

@@ -159,7 +159,7 @@ export async function POST(request: Request) {
       testimonials,
       translations,
     });
-    revalidateTag(CATALOG_TAG);
+    revalidateTag(CATALOG_TAG, { expire: 0 });
     await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
     const metaAutomation = productMetaAutomationPlan(previous, product);
     if (metaAutomation.catalog || metaAutomation.pagePost || metaAutomation.instagramPost) {
@@ -184,7 +184,7 @@ export async function DELETE(request: Request) {
   try {
     const deleted = await deleteProduct(id);
     if (!deleted) return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
-    revalidateTag(CATALOG_TAG);
+    revalidateTag(CATALOG_TAG, { expire: 0 });
     await audit(session.adminId, "product.delete", "product", String(id), { name: deleted.name, slug: deleted.slug });
     if (process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true") {
       after(() => runDeletedProductMetaAutomation(deleted));
