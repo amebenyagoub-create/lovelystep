@@ -5,6 +5,7 @@ import { createSign } from "node:crypto";
 import { listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
 import { log, errorMessage } from "./log";
 import { frenchAgeLabel } from "./product-size";
+import { siteUrl } from "./site-url";
 import type { Order, OrderStatus } from "./types";
 
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
@@ -217,6 +218,49 @@ export function orderSheetRow(order: Order): Array<string | number | boolean> {
   ];
 }
 
+
+/**
+ * Absolute URL of the product photo, for the confirmation message.
+ *
+ * Meta fetches this itself and rejects WebP, which is every photo in this
+ * catalogue — hence /api/wa-image, which converts to JPEG. Only uploaded
+ * product images are convertible; seed images under /images are skipped rather
+ * than producing a URL that would 404 on Meta's side and fail the whole send.
+ */
+export function orderImageUrl(order: Order): string {
+  const image = order.items.find((item) => item.image?.trim())?.image?.trim() ?? "";
+  const match = /^\/api\/media\/products\/([a-zA-Z0-9._-]+)$/.exec(image);
+  const origin = siteUrl();
+  if (!match || !origin) return "";
+  return `${origin}/api/wa-image/${match[1]}`;
+}
+
+/** Column letter for a zero-based index: 0 -> A, 26 -> AA. */
+function columnLetter(index: number): string {
+  let n = index + 1;
+  let out = "";
+  while (n > 0) {
+    const rest = (n - 1) % 26;
+    out = String.fromCharCode(65 + rest) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+/**
+ * Position of a column, found by NAME in the header row.
+ *
+ * The agent owns columns beyond this file's nineteen and its schema has grown
+ * before. Hardcoding a position here would put the store one schema change away
+ * from writing a product photo into, say, the ZR tracking column.
+ */
+async function headerIndex(config: SheetsConfig, name: string): Promise<number> {
+  const response = await sheetsRequest<{ values?: unknown[][] }>(
+    config.spreadsheetId, a1(config.tabName, "A1:BZ1"));
+  const headers = (response.values?.[0] ?? []).map((value) => String(value ?? "").trim());
+  return headers.indexOf(name);
+}
+
 async function ensureHeaders(config: SheetsConfig): Promise<void> {
   const range = a1(config.tabName, `A1:S1`);
   const current = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, range);
@@ -254,10 +298,30 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
   if (orderNumbers.values?.some((row) => String(row[0] ?? "").trim() === order.orderNumber)) return "already_exists";
 
   const range = a1(config.tabName, "A:S");
-  await sheetsRequest(config.spreadsheetId, range, {
-    method: "POST",
-    body: JSON.stringify({ range, majorDimension: "ROWS", values: [orderSheetRow(order)] }),
-  }, ":append", "valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS");
+  const appended = await sheetsRequest<{ updates?: { updatedRange?: string } }>(
+    config.spreadsheetId, range, {
+      method: "POST",
+      body: JSON.stringify({ range, majorDimension: "ROWS", values: [orderSheetRow(order)] }),
+    }, ":append", "valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS");
+
+  // The photo lives in a column the agent owns, past this file's nineteen, so
+  // it is written as a second targeted update rather than widening the append.
+  // Never fatal: an order without its photo still gets confirmed, it just
+  // arrives as text.
+  try {
+    const imageUrl = orderImageUrl(order);
+    const rowMatch = /![A-Z]+(\d+)/.exec(appended.updates?.updatedRange ?? "");
+    const column = imageUrl && rowMatch ? await headerIndex(config, "image_url") : -1;
+    if (imageUrl && rowMatch && column >= 0) {
+      const cell = a1(config.tabName, `${columnLetter(column)}${rowMatch[1]}`);
+      await sheetsRequest(config.spreadsheetId, cell, {
+        method: "PUT",
+        body: JSON.stringify({ range: cell, majorDimension: "ROWS", values: [[imageUrl]] }),
+      }, "", "valueInputOption=RAW");
+    }
+  } catch (error) {
+    console.warn("Google Sheets image_url skipped", error instanceof Error ? error.message : error);
+  }
   return "appended";
 }
 
