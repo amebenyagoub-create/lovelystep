@@ -7,12 +7,12 @@ const SUPPLIER_AGE_MAP: Array<[number, string]> = [
   [66, "0-3 mois"],
   [73, "4-7 mois"],
   [80, "8-11 mois"],
-  [90, "12-18 mois"],
-  [100, "18-24 mois"],
-  [110, "2-3 ans"],
-  [120, "3-4 ans"],
-  [130, "4-5 ans"],
-  [140, "5-6 ans"],
+  [90, "1-2 ans"],
+  [100, "2-3 ans"],
+  [110, "3-4 ans"],
+  [120, "4-6 ans"],
+  [130, "6-7 ans"],
+  [140, "7-8 ans"],
 ];
 
 const AGE_HEIGHT_MAP: Record<string, string> = {
@@ -25,6 +25,7 @@ const AGE_HEIGHT_MAP: Record<string, string> = {
   "2-3 ans": "90–98",
   "3-4 ans": "98–104",
   "4-5 ans": "104–110",
+  "4-6 ans": "104–116",
   "5-6 ans": "110–116",
   "6-7 ans": "116–122",
   "6-8 ans": "116–128",
@@ -34,6 +35,25 @@ const AGE_HEIGHT_MAP: Record<string, string> = {
 };
 
 const AGE_PATTERN = /^\d+\s*[-–]\s*\d+\s*(?:mois|ans?|months?|years?)$/i;
+
+/** En dessous de ce code, le nombre est déjà la stature de l'enfant (gammes bébé 59 à 73). */
+const SUPPLIER_HEIGHT_FLOOR = 80;
+
+function supplierCode(size: SizeLike): number | null {
+  const explicit = String(size.age ?? "").trim();
+  const code = `${size.label} ${explicit}`.trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/[^\s]+)?/i)?.[1];
+  return code ? Number(code) : null;
+}
+
+/**
+ * Table du fournisseur : un vêtement marqué 90 habille un enfant de 75 à 85 cm, soit le code
+ * moins 15 à moins 5 centimètres. Sans cette règle la stature était déduite de l'âge, ce qui
+ * dérivait jusqu'à 15 cm sur les grandes tailles.
+ */
+function supplierHeightRange(size: SizeLike): HeightRange | null {
+  const code = supplierCode(size);
+  return code !== null && code >= SUPPLIER_HEIGHT_FLOOR ? { min: code - 15, max: code - 5 } : null;
+}
 
 export function frenchAgeLabel(size: SizeLike): string {
   const explicit = String(size.age ?? "").trim();
@@ -64,11 +84,8 @@ export function recommendedHeightLabel(size: SizeLike, locale: StoreLocale): str
   const explicit = String(size.height ?? "").trim().replace(/\s*(?:cm|سم)\s*$/i, "");
   if (explicit) return `${explicit} ${unit}`;
 
-  const range = AGE_HEIGHT_MAP[frenchAgeLabel(size)];
-  if (range) return `${range} ${unit}`;
-
-  const supplierSize = String(size.label).trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/.*)?$/i)?.[1];
-  return supplierSize ? `${supplierSize} ${unit}` : "—";
+  const range = heightRange(size);
+  return range ? `${range.min}–${range.max} ${unit}` : "—";
 }
 
 export type HeightRange = { min: number; max: number };
@@ -76,7 +93,8 @@ export type SizeRecommendation = { label: string; fit: "match" | "under" | "over
 
 /** Fourchette de stature couverte par une taille, en centimètres. */
 export function heightRange(size: SizeLike): HeightRange | null {
-  const source = String(size.height ?? "").trim() || AGE_HEIGHT_MAP[frenchAgeLabel(size)] || "";
+  const source = String(size.height ?? "").trim();
+  if (!source) return supplierHeightRange(size) ?? ageHeightRange(size);
   const bounds = source.match(/(\d{2,3})\s*[-–]\s*(\d{2,3})/);
   if (bounds) {
     const min = Number(bounds[1]);
@@ -85,6 +103,11 @@ export function heightRange(size: SizeLike): HeightRange | null {
   }
   const single = source.match(/(\d{2,3})/);
   return single ? { min: Number(single[1]) - 5, max: Number(single[1]) + 5 } : null;
+}
+
+function ageHeightRange(size: SizeLike): HeightRange | null {
+  const bounds = (AGE_HEIGHT_MAP[frenchAgeLabel(size)] || "").match(/(\d{2,3})\s*[-–]\s*(\d{2,3})/);
+  return bounds ? { min: Number(bounds[1]), max: Number(bounds[2]) } : null;
 }
 
 /**
