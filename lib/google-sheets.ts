@@ -289,6 +289,17 @@ export async function verifyGoogleSheetsConnection(): Promise<{ spreadsheetId: s
   return config;
 }
 
+export async function clearOrderRowsFromGoogleSheet(apply = false): Promise<{ spreadsheetId: string; tabName: string; rows: number; cleared: boolean }> {
+  const config = sheetsConfig();
+  if (!config) throw new Error("GOOGLE_SHEETS_SPREADSHEET_ID n'est pas configuré.");
+  await ensureHeaders(config);
+  const range = a1(config.tabName, "A2:ZZZ");
+  const current = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, range);
+  const rows = (current.values ?? []).filter((row) => row.some((cell) => String(cell ?? "").trim())).length;
+  if (apply && rows) await sheetsRequest(config.spreadsheetId, range, { method: "POST", body: "{}" }, ":clear");
+  return { ...config, rows, cleared: apply };
+}
+
 export async function appendOrderToGoogleSheet(order: Order): Promise<"appended" | "already_exists" | "disabled"> {
   const config = sheetsConfig();
   if (!config) return "disabled";
