@@ -404,3 +404,32 @@
   .color-picker>div{grid-template-columns:1fr}
   .mobile-buy button{font-size:11px;padding-inline:14px}
 }
+
+/* Choix de la taille par la stature : sélecteur guidé + rappel des centimètres. */
+.size-finder{margin-top:14px;background:var(--cream);border-radius:16px;padding:14px 16px}
+.size-finder>strong{display:block;font-family:"Fredoka",sans-serif;font-size:16px}
+.size-finder>label{display:block;font-size:12px;font-weight:800;color:var(--muted);margin:4px 0 9px}
+.size-finder-field{display:flex;align-items:center;gap:9px;max-width:190px}
+.size-finder-field input{width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px 13px;color:var(--ink);outline:none}
+.size-finder-field input:focus{border-color:var(--navy)}
+.size-finder-field span{font-weight:800;font-size:13px}
+.size-finder-result{margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
+.size-finder-result p{margin:0;font-size:14px;font-weight:700}
+.size-finder-result p b{color:var(--coral)}
+.size-finder-result.warn p b{color:#b62f26}
+.size-finder-result small{display:block;font-size:12px;color:var(--muted);line-height:1.5;margin-top:5px}
+.size-finder-result button{margin-top:10px;border:1px solid var(--navy);border-radius:999px;background:#fff;padding:8px 16px;font-size:12px;font-weight:800}
+.size-finder-result button:hover{background:var(--navy);color:#fff}
+.size-options{margin-top:18px;row-gap:16px}
+.size-options button{position:relative}
+.size-options button em{display:block;font-style:normal;font-size:11px;font-weight:800;color:var(--coral);margin-top:2px}
+.size-options button:disabled em{color:inherit}
+.size-options button i{position:absolute;z-index:1;top:-10px;left:50%;transform:translateX(-50%);font-style:normal;white-space:nowrap;background:var(--navy);color:#fff;border-radius:999px;padding:2px 9px;font-size:9px;font-weight:800;letter-spacing:.04em}
+.size-options button.recommended{border-color:var(--navy);box-shadow:0 0 0 2px rgba(30,65,106,.15)}
+
+@media(max-width:800px){
+  .size-finder{padding:12px 13px}
+  .size-finder-field{max-width:100%}
+  .size-options button{min-height:74px}
+  .size-options button em{font-size:10px}
+}

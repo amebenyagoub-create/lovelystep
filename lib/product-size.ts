@@ -1,6 +1,6 @@
 export type StoreLocale = "fr" | "en" | "ar";
 
-type SizeLike = { label: string; age?: string | null; height?: string | null };
+export type SizeLike = { label: string; age?: string | null; height?: string | null };
 
 const SUPPLIER_AGE_MAP: Array<[number, string]> = [
   [59, "0-3 mois"],
@@ -69,4 +69,43 @@ export function recommendedHeightLabel(size: SizeLike, locale: StoreLocale): str
 
   const supplierSize = String(size.label).trim().match(/^(\d{2,3})(?:\s*cm)?(?:\s*\/.*)?$/i)?.[1];
   return supplierSize ? `${supplierSize} ${unit}` : "—";
+}
+
+export type HeightRange = { min: number; max: number };
+export type SizeRecommendation = { label: string; fit: "match" | "under" | "over" };
+
+/** Fourchette de stature couverte par une taille, en centimètres. */
+export function heightRange(size: SizeLike): HeightRange | null {
+  const source = String(size.height ?? "").trim() || AGE_HEIGHT_MAP[frenchAgeLabel(size)] || "";
+  const bounds = source.match(/(\d{2,3})\s*[-–]\s*(\d{2,3})/);
+  if (bounds) {
+    const min = Number(bounds[1]);
+    const max = Number(bounds[2]);
+    return max >= min ? { min, max } : null;
+  }
+  const single = source.match(/(\d{2,3})/);
+  return single ? { min: Number(single[1]) - 5, max: Number(single[1]) + 5 } : null;
+}
+
+/**
+ * Taille conseillée pour une stature donnée. Entre deux tailles on retient toujours la plus
+ * grande ; `fit` signale une stature hors de l'échelle proposée par le produit.
+ */
+export function recommendSize(sizes: readonly SizeLike[], heightCm: number): SizeRecommendation | null {
+  if (!Number.isFinite(heightCm) || heightCm < 30 || heightCm > 200) return null;
+  const scale = sizes.flatMap((size) => {
+    const range = heightRange(size);
+    return range ? [{ label: String(size.label), range }] : [];
+  }).sort((first, second) => first.range.min - second.range.min || first.range.max - second.range.max);
+  if (!scale.length) return null;
+
+  const smallest = scale[0];
+  const largest = scale[scale.length - 1];
+  if (heightCm < smallest.range.min) return { label: smallest.label, fit: "under" };
+  if (heightCm > largest.range.max) return { label: largest.label, fit: "over" };
+
+  const covering = scale.filter(({ range }) => heightCm >= range.min && heightCm <= range.max);
+  if (covering.length) return { label: covering[covering.length - 1].label, fit: "match" };
+  const nextUp = scale.find(({ range }) => range.min > heightCm);
+  return nextUp ? { label: nextUp.label, fit: "match" } : { label: largest.label, fit: "match" };
 }
