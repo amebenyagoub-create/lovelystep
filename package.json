@@ -13,8 +13,6 @@
     "lint": "eslint . --ignore-pattern .next",
     "ai:test-providers": "node --env-file=.env.local scripts/check-ai-providers.mjs",
     "ai:test-import": "node --env-file=.env.local scripts/e2e-ai-import.mjs",
-    "background:setup": "node scripts/setup-background-removal.mjs",
-    "test:product-overlay": "node scripts/test-product-overlay.mjs",
     "test:size-guide": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-product-size-guide.mjs",
     "test:order-flow": "node scripts/test-order-flow.mjs",
     "test:google-sheets": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-google-sheets.mjs",

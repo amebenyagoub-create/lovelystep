@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { extractProduct, type AiProvider } from "@/lib/ai/product-extractor";
 import { audit, createImportJob, saveProduct, updateImportJob, updateProductSourceData } from "@/lib/db-postgres";
-import { deleteProductImages, prepareEvidenceImages, saveManualProductImages, saveProductImages } from "@/lib/uploads";
+import { deleteProductImages, prepareEvidenceImages, saveProductImages } from "@/lib/uploads";
 import { frenchAgeLabel } from "@/lib/product-size";
 
 export const runtime = "nodejs";
@@ -34,8 +34,7 @@ export async function POST(request: Request) {
     const requestedValue = String(form.get("provider") || "auto");
     const requested: "auto" | AiProvider = requestedValue === "gemini" || requestedValue === "groq" ? requestedValue : "auto";
     const evidence = await prepareEvidenceImages(screenshots);
-    gallery = await saveProductImages(productFiles);
-    gallery.push(...await saveManualProductImages(manualFiles));
+    gallery = await saveProductImages([...productFiles, ...manualFiles]);
     const result = await extractProduct(evidence, requested);
     const extracted = result.product;
     const ageSizes = [...new Map(extracted.sizes.map((size) => {

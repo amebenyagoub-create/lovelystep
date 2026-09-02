@@ -78,18 +78,6 @@ Le connecteur d’envoi des commandes ne doit être activé qu’après le test 
 
 Le référentiel des adresses provient du projet MIT [Algeria-Cities](https://github.com/ihahachi/Algeria-Cities).
 
-## Suppression d’arrière-plan des produits
-
-Avant d’ajouter le fond crème et l’overlay Lovely Step, chaque photo produit passe par une suppression d’arrière-plan locale. Cette étape utilise Rembg sur le serveur : la photo n’est envoyée à aucun service tiers.
-
-Installez le moteur une seule fois avec Python 3.11 à 3.13 :
-
-```bash
-npm run background:setup
-```
-
-Le modèle `isnet-general-use` est téléchargé au premier traitement puis conservé dans `data/background-removal-models/`. Ce premier traitement est donc plus long. Vous pouvez choisir un autre modèle avec `BACKGROUND_REMOVAL_MODEL` et préciser un exécutable Python avec `BACKGROUND_REMOVAL_PYTHON`.
-
 ## Données locales
 
 - Base : `data/lovelystep.db`

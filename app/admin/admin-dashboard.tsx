@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { DeliveryRate, ImportJob, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
-import { frenchAgeLabel } from "@/lib/product-size";
+import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
@@ -28,7 +28,6 @@ export default function AdminDashboard() {
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [screenshots, setScreenshots] = useState<File[]>([]);
   const [productImages, setProductImages] = useState<File[]>([]);
-  const [manualImages, setManualImages] = useState<File[]>([]);
   const [provider, setProvider] = useState<Provider>("auto");
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [checkingAi, setCheckingAi] = useState(false);
@@ -115,19 +114,18 @@ export default function AdminDashboard() {
   async function importFromScreenshots(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!data || screenshots.length === 0) { setError("Ajoutez au moins une capture d’écran 1688."); return; }
-    if (productImages.length + manualImages.length > 12) { setError("Ajoutez au maximum 12 photos produit au total."); return; }
+    if (productImages.length > 12) { setError("Ajoutez au maximum 12 photos produit."); return; }
     setBusy(true); setError(""); setNotice("");
     const form = new FormData();
     screenshots.forEach((file) => form.append("screenshots", file));
     productImages.forEach((file) => form.append("productImages", file));
-    manualImages.forEach((file) => form.append("manualImages", file));
     form.set("provider", provider);
     try {
       const response = await fetch("/api/admin/ai-import", { method: "POST", headers: { "x-csrf-token": data.csrfToken }, body: form });
       if (response.status === 401) { router.replace("/admin/login"); return; }
       const value = await response.json().catch(() => ({}));
       if (!response.ok) { setError(value.error || "Analyse impossible."); await load(); return; }
-      setScreenshots([]); setProductImages([]); setManualImages([]);
+      setScreenshots([]); setProductImages([]);
       await load();
       const warningCount = Array.isArray(value.warnings) ? value.warnings.length : 0;
       setNotice(`Brouillon créé avec ${value.provider === "gemini" ? "Gemini" : "Groq"}. ${warningCount} point(s) à vérifier.`);
@@ -161,9 +159,8 @@ export default function AdminDashboard() {
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><div className="orders-actions"><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
-      {tab === "import" && <section className="import-layout"><article className="admin-card importer ai-importer"><span className="import-icon">AI</span><h2>Créer un brouillon depuis des captures</h2><p>Ajoutez les photos originales du produit et des captures lisibles de la fiche 1688. Gemini analyse en premier ; Groq prend le relais automatiquement en cas d’échec.</p><div className="ai-provider-health"><div><strong>Connexion des services IA</strong><span>Testez la connexion avant un import pour détecter immédiatement un blocage réseau.</span></div><button type="button" onClick={() => void checkAiConnection()} disabled={checkingAi}>{checkingAi ? "Test en cours…" : "Tester la connexion"}</button>{aiStatus && <div className="ai-provider-results">{(["gemini", "groq"] as const).map((name) => <p className={aiStatus[name].ok ? "ready" : "failed"} key={name}><b>{name === "gemini" ? "Gemini" : "Groq"}</b><span>{aiStatus[name].ok ? "Prêt" : aiStatus[name].message}</span></p>)}</div>}</div><form className="ai-import-form" onSubmit={importFromScreenshots}>
-        <FileDropzone label="1. Photos à détourer automatiquement" help="Le fond sera supprimé, puis l’overlay Lovely Step sera appliqué automatiquement · JPG, PNG ou WebP" files={productImages} onChange={setProductImages} max={12} />
-        <FileDropzone label="Ou : images prêtes à publier, sans détourage" help="L’image et son arrière-plan seront conservés tels quels, sans suppression ni overlay automatique · 12 photos maximum au total" files={manualImages} onChange={setManualImages} max={12} />
+      {tab === "import" && <section className="import-layout"><article className="admin-card importer ai-importer"><span className="import-icon">AI</span><h2>Créer un brouillon depuis des captures</h2><p>Ajoutez les photos du produit et des captures lisibles de la fiche 1688. Gemini analyse en premier ; Groq prend le relais automatiquement en cas d’échec.</p><div className="ai-provider-health"><div><strong>Connexion des services IA</strong><span>Testez la connexion avant un import pour détecter immédiatement un blocage réseau.</span></div><button type="button" onClick={() => void checkAiConnection()} disabled={checkingAi}>{checkingAi ? "Test en cours…" : "Tester la connexion"}</button>{aiStatus && <div className="ai-provider-results">{(["gemini", "groq"] as const).map((name) => <p className={aiStatus[name].ok ? "ready" : "failed"} key={name}><b>{name === "gemini" ? "Gemini" : "Groq"}</b><span>{aiStatus[name].ok ? "Prêt" : aiStatus[name].message}</span></p>)}</div>}</div><form className="ai-import-form" onSubmit={importFromScreenshots}>
+        <FileDropzone label="1. Photos du produit" help="Publiées telles quelles, sans retouche · JPG, PNG ou WebP · 12 photos maximum" files={productImages} onChange={setProductImages} max={12} />
         <FileDropzone label="2. Captures de la fiche 1688" help="Titre, prix fournisseur, caractéristiques, tailles et avis · 5 maximum" files={screenshots} onChange={setScreenshots} max={5} />
         <label className="provider-choice">Fournisseur IA<select value={provider} onChange={(event) => setProvider(event.target.value as Provider)}><option value="auto">Automatique — Gemini puis Groq</option><option value="gemini">Gemini uniquement</option><option value="groq">Groq uniquement</option></select></label>
         <button className="admin-primary ai-submit" disabled={busy || screenshots.length === 0}>{busy ? "Analyse et création du brouillon…" : "Analyser et créer le brouillon"}</button>
@@ -281,7 +278,7 @@ function OrdersTable({ orders, onStatus, onDelete, onDispatch, onRetrySheet, zrE
 
 function initialVariants(product: Product | null): ProductVariant[] {
   if (product?.variants.length) return product.variants;
-  const sizes = product?.sizes.length ? product.sizes : [{ label: "0-3 mois", stock: 10, age: "0-3 mois", weight: "", height: "" }];
+  const sizes = product?.sizes.length ? product.sizes : [{ label: "90", stock: 0, age: "", weight: "", height: "" }];
   const colors = product ? (product.colors.length ? product.colors : (product.color ? [product.color] : [""])) : [""];
   return colors.flatMap((color, colorIndex) => sizes.map((size) => ({ color, size: size.label, stock: colorIndex === 0 ? size.stock : 0, age: size.age, weight: size.weight, height: size.height })));
 }
@@ -368,8 +365,14 @@ function VariantStockEditor({ variants, colors, onChange }: { variants: ProductV
 
 function SizeStockEditor({ sizes, onChange }: { sizes: ProductSize[]; onChange: (value: ProductSize[]) => void }) {
   const stock = sizes.reduce((sum, size) => sum + Math.max(0, Number(size.stock) || 0), 0);
+  const unknown = sizes.some((size) => size.label.trim() && frenchAgeLabel(size) === size.label.trim());
   function update(index: number, patch: Partial<ProductSize>) { onChange(sizes.map((size, itemIndex) => itemIndex === index ? { ...size, ...patch } : size)); }
-  return <div className="structured-editor"><div className="structured-title"><div><strong>Âges et quantités</strong><span>Stock total : {stock} pièce{stock > 1 ? "s" : ""}</span></div><button type="button" onClick={() => onChange([...sizes, { label: "", stock: 0, age: "", weight: "", height: "" }])}>+ Ajouter un âge</button></div>{sizes.length === 0 ? <p className="empty-structured">Aucun âge. Ajoutez au moins une ligne.</p> : <div className="size-editor age-size-editor"><div className="size-editor-head"><span>Âge affiché</span><span>Quantité</span><span /></div>{sizes.map((size, index) => <div className="size-editor-row" key={index}><input aria-label="Âge affiché" value={frenchAgeLabel(size)} placeholder="Ex. 8-11 mois" onChange={(event) => update(index, { label: event.target.value, age: event.target.value, weight: "", height: "" })} /><input aria-label="Quantité" type="number" min="0" step="1" value={size.stock} onChange={(event) => update(index, { stock: Math.max(0, Number(event.target.value) || 0) })} /><button type="button" aria-label="Supprimer l’âge" onClick={() => onChange(sizes.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>)}</div>}</div>;
+  return <div className="structured-editor"><div className="structured-title"><div><strong>Tailles et quantités</strong><span>Stock total : {stock} pièce{stock > 1 ? "s" : ""}</span></div><button type="button" onClick={() => onChange([...sizes, { label: "", stock: 0, age: "", weight: "", height: "" }])}>+ Ajouter une taille</button></div>{sizes.length === 0 ? <p className="empty-structured">Aucune taille. Ajoutez au moins une ligne.</p> : <div className="size-editor age-size-editor"><div className="size-editor-head"><span>Taille (cm)</span><span>Âge affiché</span><span>Stature de l’enfant</span><span>Quantité</span><span /></div>{sizes.map((size, index) => {
+    const typed = size.label.trim();
+    const age = typed ? frenchAgeLabel(size) : "";
+    const known = Boolean(age) && age !== typed;
+    return <div className="size-editor-row" key={index}><input aria-label="Taille en centimètres" inputMode="numeric" value={size.label} placeholder="Ex. 90" onChange={(event) => update(index, { label: event.target.value.trim(), age: "", weight: "", height: "" })} /><output className={known ? "derived" : "derived pending"}>{known ? age : "—"}</output><output className={known ? "derived" : "derived pending"}>{known ? recommendedHeightLabel(size, "fr") : "—"}</output><input aria-label="Quantité" type="number" min="0" step="1" value={size.stock} onChange={(event) => update(index, { stock: Math.max(0, Number(event.target.value) || 0) })} /><button type="button" aria-label="Supprimer la taille" onClick={() => onChange(sizes.filter((_, itemIndex) => itemIndex !== index))}>×</button></div>;
+  })}</div>}{unknown && <p className="empty-structured">Taille non reconnue : saisissez le nombre du fournisseur, par exemple 90, 100, 110 ou 120.</p>}</div>;
 }
 
 function TestimonialsEditor({ testimonials, onChange }: { testimonials: ProductTestimonial[]; onChange: (value: ProductTestimonial[]) => void }) {
@@ -397,7 +400,7 @@ function ImageManager({ images, csrfToken, onChange, onError }: { images: string
     }
   }
   function drop(event: DragEvent<HTMLLabelElement>) { event.preventDefault(); setDragging(false); void upload(Array.from(event.dataTransfer.files)); }
-  return <div className="image-manager"><div className="field-title">Images du produit</div><label htmlFor={inputId} className={`drop-zone compact ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}><input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => void upload(Array.from(event.target.files || []))} /><strong>{uploading ? "Suppression du fond et ajout de l’overlay…" : "Déposez vos photos ici"}</strong><span>Le fond sera supprimé localement avant l’ajout de l’overlay · la première image servira au guide des tailles</span></label>{images.length > 0 && <div className="uploaded-image-grid">{images.map((image, index) => <div key={`${image}-${index}`}><Image src={image} alt="" fill sizes="120px" unoptimized={image.startsWith("/api/media/")} /><span>{index === 0 ? "Couverture" : index + 1}</span><div><button type="button" disabled={index === 0} onClick={() => onChange([image, ...images.filter((_, itemIndex) => itemIndex !== index)])}>★</button><button type="button" onClick={() => onChange(images.filter((_, itemIndex) => itemIndex !== index))}>×</button></div></div>)}</div>}</div>;
+  return <div className="image-manager"><div className="field-title">Images du produit</div><label htmlFor={inputId} className={`drop-zone compact ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}><input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => void upload(Array.from(event.target.files || []))} /><strong>{uploading ? "Envoi des photos…" : "Déposez vos photos ici"}</strong><span>Les photos sont publiées telles quelles · la première image servira au guide des tailles</span></label>{images.length > 0 && <div className="uploaded-image-grid">{images.map((image, index) => <div key={`${image}-${index}`}><Image src={image} alt="" fill sizes="120px" unoptimized={image.startsWith("/api/media/")} /><span>{index === 0 ? "Couverture" : index + 1}</span><div><button type="button" disabled={index === 0} onClick={() => onChange([image, ...images.filter((_, itemIndex) => itemIndex !== index)])}>★</button><button type="button" onClick={() => onChange(images.filter((_, itemIndex) => itemIndex !== index))}>×</button></div></div>)}</div>}</div>;
 }
 
 function FileDropzone({ label, help, files, onChange, max }: { label: string; help: string; files: File[]; onChange: (files: File[]) => void; max: number }) {
