@@ -4,16 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
-import type { DeliveryRate, ImportJob, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
+import type { DeliveryRate, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
 import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
 
-type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null } }; products: Product[]; orders: Order[]; imports: ImportJob[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
-type Tab = "overview" | "analytics" | "campaigns" | "meta" | "orders" | "products" | "import" | "store" | "delivery";
-type Provider = "auto" | "gemini" | "groq";
-type AiStatus = Record<"gemini" | "groq", { ok: boolean; model: string; message: string }>;
+type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null } }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
+type Tab = "overview" | "analytics" | "campaigns" | "meta" | "orders" | "products" | "store" | "delivery";
 const money = (cents: number) => new Intl.NumberFormat("fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
 const orderLabels: Record<OrderStatus, string> = { new: "Nouvelle", to_confirm: "À confirmer", confirmed: "Confirmée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", refused: "Refusée", returned: "Retournée", cancelled: "Annulée" };
 
@@ -26,11 +24,6 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
-  const [screenshots, setScreenshots] = useState<File[]>([]);
-  const [productImages, setProductImages] = useState<File[]>([]);
-  const [provider, setProvider] = useState<Provider>("auto");
-  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
-  const [checkingAi, setCheckingAi] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -103,51 +96,11 @@ export default function AdminDashboard() {
     if (value) setNotice("Produit supprimé.");
   }
 
-  async function checkAiConnection() {
-    setCheckingAi(true); setError("");
-    try {
-      const response = await fetch("/api/admin/ai-status", { cache: "no-store" });
-      if (response.status === 401) { router.replace("/admin/login"); return; }
-      const value = await response.json().catch(() => ({}));
-      if (value.providers) setAiStatus(value.providers as AiStatus);
-      else setError(value.error || "Test de connexion IA impossible.");
-    } catch {
-      setError("Le dashboard ne parvient pas à joindre le serveur LovelyStep.");
-    } finally {
-      setCheckingAi(false);
-    }
-  }
-
-  async function importFromScreenshots(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!data || screenshots.length === 0) { setError("Ajoutez au moins une capture d’écran 1688."); return; }
-    if (productImages.length > 12) { setError("Ajoutez au maximum 12 photos produit."); return; }
-    setBusy(true); setError(""); setNotice("");
-    const form = new FormData();
-    screenshots.forEach((file) => form.append("screenshots", file));
-    productImages.forEach((file) => form.append("productImages", file));
-    form.set("provider", provider);
-    try {
-      const response = await fetch("/api/admin/ai-import", { method: "POST", headers: { "x-csrf-token": data.csrfToken }, body: form });
-      if (response.status === 401) { router.replace("/admin/login"); return; }
-      const value = await response.json().catch(() => ({}));
-      if (!response.ok) { setError(value.error || "Analyse impossible."); await load(); return; }
-      setScreenshots([]); setProductImages([]);
-      await load();
-      const warningCount = Array.isArray(value.warnings) ? value.warnings.length : 0;
-      setNotice(`Brouillon créé avec ${value.provider === "gemini" ? "Gemini" : "Groq"}. ${warningCount} point(s) à vérifier.`);
-      setEditing(value.product);
-    } catch {
-      setError("Connexion interrompue pendant l’import. Vérifiez le réseau puis réessayez.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (!data) return <main className="admin-loading"><Image src="/brand/lovelystep-logo.png" alt="" width={130} height={130} /><p>Chargement du dashboard…</p>{error && <p className="form-error">{error}</p>}</main>;
-  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["import", "Import IA", "↧"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
-  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "orders" ? "Commandes" : tab === "products" ? "Catalogue produits" : tab === "import" ? "Import produit par IA" : tab === "store" ? "Façade de la boutique" : "Livraison";
-  const primaryMobileTabs: Tab[] = ["overview", "orders", "products", "import"];
+
+  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
+  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "orders" ? "Commandes" : tab === "products" ? "Catalogue produits" : tab === "store" ? "Façade de la boutique" : "Livraison";
+  const primaryMobileTabs: Tab[] = ["overview", "orders", "products", "store"];
   const selectTab = (value: Tab) => {
     setTab(value);
     setError("");
@@ -160,18 +113,12 @@ export default function AdminDashboard() {
     <header className="admin-mobile-topbar"><Link href="/" aria-label="Voir la boutique"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={58} height={58} /></Link><div><small>Administration</small><strong>{tabTitle}</strong></div><Link href="/" target="_blank" className="admin-mobile-store-link">Boutique ↗</Link></header>
     <main className="admin-main"><header className="admin-page-header"><div><span className="admin-kicker">Lovely Step · Administration</span><h1>{tabTitle}</h1></div><span className="secure-pill">● Session sécurisée</span></header>{error && <div className="admin-alert error">{error}<button onClick={() => setError("")}>×</button></div>}{notice && <div className="admin-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
-      {tab === "overview" && <><section className="stat-grid kpi-grid"><article className="revenue-stat"><span>Solde · CA livré</span><strong>{money(data.stats.deliveredRevenueCents)}</strong><small>Commandes marquées livrées</small></article><article className="profit-stat"><span>Bénéfice brut</span><strong>{money(data.stats.grossProfitCents)}</strong><small>CA livré moins coût des articles</small></article><article><span>Visiteurs · 30 jours</span><strong>{data.stats.visitors30d}</strong><small>Visiteurs uniques de la boutique</small></article><article><span>Acheteurs récurrents</span><strong>{data.stats.repeatBuyerRate}%</strong><small>Clients livrés ayant acheté au moins 2 fois</small></article><article><span>Inventaire</span><strong>{data.stats.inventoryUnits}</strong><small>Pièces disponibles, toutes variantes</small></article><article className="meta-stat"><span>Meta Ads</span><strong>{data.meta.insightsConfigured ? "Accès prêt" : data.meta.pixelConfigured ? "Pixel actif" : "À configurer"}</strong><small>{data.meta.insightsConfigured ? "Identifiants fournis · synchronisation KPI à activer" : data.meta.pixelConfigured ? "Ajoutez le compte Ads et le jeton Insights" : "Ajoutez le Pixel ID dans l’environnement"}</small></article></section><section className="stat-grid"><article><span>Commandes à traiter</span><strong>{data.stats.newOrders}</strong><button onClick={() => setTab("orders")}>Voir les commandes →</button></article><article><span>Commandes totales</span><strong>{data.stats.orders}</strong><small>Paiement à la livraison</small></article><article><span>Produits publiés</span><strong>{data.stats.published}</strong><small>sur {data.stats.products} produits</small></article><article className="coral-stat"><span>Importer un produit</span><strong>IA</strong><button onClick={() => setTab("import")}>Démarrer →</button></article></section><section className="admin-card"><div className="card-title"><div><h2>Commandes récentes</h2><p>Les nouvelles commandes doivent être confirmées par téléphone.</p></div><button onClick={() => setTab("orders")}>Tout afficher</button></div><OrdersTable orders={data.orders.slice(0, 5)} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section></>}
+      {tab === "overview" && <><section className="stat-grid kpi-grid"><article className="revenue-stat"><span>Solde · CA livré</span><strong>{money(data.stats.deliveredRevenueCents)}</strong><small>Commandes marquées livrées</small></article><article className="profit-stat"><span>Bénéfice brut</span><strong>{money(data.stats.grossProfitCents)}</strong><small>CA livré moins coût des articles</small></article><article><span>Visiteurs · 30 jours</span><strong>{data.stats.visitors30d}</strong><small>Visiteurs uniques de la boutique</small></article><article><span>Acheteurs récurrents</span><strong>{data.stats.repeatBuyerRate}%</strong><small>Clients livrés ayant acheté au moins 2 fois</small></article><article><span>Inventaire</span><strong>{data.stats.inventoryUnits}</strong><small>Pièces disponibles, toutes variantes</small></article><article className="meta-stat"><span>Meta Ads</span><strong>{data.meta.insightsConfigured ? "Accès prêt" : data.meta.pixelConfigured ? "Pixel actif" : "À configurer"}</strong><small>{data.meta.insightsConfigured ? "Identifiants fournis · synchronisation KPI à activer" : data.meta.pixelConfigured ? "Ajoutez le compte Ads et le jeton Insights" : "Ajoutez le Pixel ID dans l’environnement"}</small></article></section><section className="stat-grid"><article><span>Commandes à traiter</span><strong>{data.stats.newOrders}</strong><button onClick={() => setTab("orders")}>Voir les commandes →</button></article><article><span>Commandes totales</span><strong>{data.stats.orders}</strong><small>Paiement à la livraison</small></article><article><span>Produits publiés</span><strong>{data.stats.published}</strong><small>sur {data.stats.products} produits</small></article><article className="coral-stat"><span>Ajouter un produit</span><strong>+</strong><button onClick={() => { setTab("products"); setEditing("new"); }}>Créer →</button></article></section><section className="admin-card"><div className="card-title"><div><h2>Commandes récentes</h2><p>Les nouvelles commandes doivent être confirmées par téléphone.</p></div><button onClick={() => setTab("orders")}>Tout afficher</button></div><OrdersTable orders={data.orders.slice(0, 5)} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section></>}
       {tab === "analytics" && <AnalyticsPanel />}
       {tab === "campaigns" && <CampaignIntelligencePanel />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><div className="orders-actions"><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button><button disabled={busy || product.status !== "published"} title={product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
-      {tab === "import" && <section className="import-layout"><article className="admin-card importer ai-importer"><span className="import-icon">AI</span><h2>Créer un brouillon depuis des captures</h2><p>Ajoutez les photos du produit et des captures lisibles de la fiche 1688. Gemini analyse en premier ; Groq prend le relais automatiquement en cas d’échec.</p><div className="ai-provider-health"><div><strong>Connexion des services IA</strong><span>Testez la connexion avant un import pour détecter immédiatement un blocage réseau.</span></div><button type="button" onClick={() => void checkAiConnection()} disabled={checkingAi}>{checkingAi ? "Test en cours…" : "Tester la connexion"}</button>{aiStatus && <div className="ai-provider-results">{(["gemini", "groq"] as const).map((name) => <p className={aiStatus[name].ok ? "ready" : "failed"} key={name}><b>{name === "gemini" ? "Gemini" : "Groq"}</b><span>{aiStatus[name].ok ? "Prêt" : aiStatus[name].message}</span></p>)}</div>}</div><form className="ai-import-form" onSubmit={importFromScreenshots}>
-        <FileDropzone label="1. Photos du produit" help="Publiées telles quelles, sans retouche · JPG, PNG ou WebP · 12 photos maximum" files={productImages} onChange={setProductImages} max={12} />
-        <FileDropzone label="2. Captures de la fiche 1688" help="Titre, prix fournisseur, caractéristiques, tailles et avis · 5 maximum" files={screenshots} onChange={setScreenshots} max={5} />
-        <label className="provider-choice">Fournisseur IA<select value={provider} onChange={(event) => setProvider(event.target.value as Provider)}><option value="auto">Automatique — Gemini puis Groq</option><option value="gemini">Gemini uniquement</option><option value="groq">Groq uniquement</option></select></label>
-        <button className="admin-primary ai-submit" disabled={busy || screenshots.length === 0}>{busy ? "Analyse et création du brouillon…" : "Analyser et créer le brouillon"}</button>
-      </form><div className="import-warning"><strong>Le prix de vente reste vide</strong><p>L’IA conserve le prix fournisseur comme note privée. Vous devez définir le prix Lovely Step, vérifier les tailles et mettre le produit en ligne manuellement.</p></div></article><article className="admin-card"><div className="card-title"><div><h2>Historique</h2><p>Les 50 derniers imports.</p></div></div><div className="import-history">{data.imports.length === 0 ? <p>Aucun import pour le moment.</p> : data.imports.map((job) => <div key={job.id}><span className={`status ${job.status}`}>{job.status.replaceAll("_", " ")}</span>{job.sourceUrl.startsWith("upload://") ? <span>Import par captures</span> : <a href={job.sourceUrl} target="_blank" rel="noreferrer">{job.sourceUrl}</a>}{job.error && <small>{job.error}</small>}</div>)}</div></article></section>}
       {tab === "store" && <StorefrontEditor settings={data.storeSettings} images={[...new Set(data.products.flatMap((product) => product.images))]} csrfToken={data.csrfToken} busy={busy} onError={setError} onSave={async (settings) => { const value = await jsonRequest("/api/admin/store-settings", { method: "POST", body: JSON.stringify(settings) }); if (value) setNotice("Façade de la boutique mise à jour."); }} />}
       {tab === "delivery" && <DeliveryEditor rates={data.deliveryRates} zrExpress={data.zrExpress} busy={busy} onSyncZrExpress={async () => { const value = await jsonRequest("/api/admin/delivery/sync-zrexpress", { method: "POST" }); if (!value) return null; setNotice(`${value.syncedWilayas} wilaya(s) synchronisée(s) depuis ZR Express.`); return value.rates as DeliveryRate[]; }} onSaveRates={async (rates) => { const value = await jsonRequest("/api/admin/delivery", { method: "POST", body: JSON.stringify({ rates }) }); if (value) setNotice("Tarifs de livraison enregistrés."); }} />}
     </main>
@@ -291,7 +238,18 @@ function initialVariants(product: Product | null): ProductVariant[] {
   return colors.flatMap((color, colorIndex) => sizes.map((size) => ({ color, size: size.label, stock: colorIndex === 0 ? size.stock : 0, age: size.age, weight: size.weight, height: size.height })));
 }
 
+const EDITOR_STEPS = ["L’essentiel", "Photos et couleurs", "Tailles et stock", "Textes"] as const;
+
+/** Le slug suit le nom tant que personne ne l'a saisi a la main. */
+function slugify(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+}
+
 function ProductEditor({ product, busy, csrfToken, onError, onClose, onSave }: { product: Product | null; busy: boolean; csrfToken: string; onError: (value: string) => void; onClose: () => void; onSave: (body: Partial<Product>) => void }) {
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState(product?.name ?? "");
+  const [slug, setSlug] = useState(product?.slug ?? "");
+  const [slugEdited, setSlugEdited] = useState(Boolean(product));
   const [images, setImages] = useState(product?.images ?? []);
   const [colorImages, setColorImages] = useState<Record<string, string>>(product?.colorImages ?? {});
   const [colors, setColors] = useState<string[]>(product?.colors?.length ? product.colors : (product?.color ? product.color.split(",").map((value) => value.trim()).filter(Boolean) : []));
@@ -315,6 +273,11 @@ function ProductEditor({ product, busy, csrfToken, onError, onClose, onSave }: {
     });
     setColors(next);
   }
+  function changeName(value: string) {
+    setName(value);
+    if (!slugEdited) setSlug(slugify(value));
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const cleanColors = colors.map((value) => value.trim()).filter(Boolean);
@@ -326,23 +289,41 @@ function ProductEditor({ product, busy, csrfToken, onError, onClose, onSave }: {
       return map;
     }, new Map<string, ProductSize>()).values()];
     const cleanTestimonials = testimonials.map((item) => ({ ...item, quote: item.quote.trim(), author: item.author?.trim(), source: item.source?.trim(), rating: Math.min(5, Math.max(0, Number(item.rating) || 0)) })).filter((item) => item.quote);
-    onSave({ id: product?.id, name: String(form.get("name")), slug: String(form.get("slug")), priceCents: Math.round(Number(form.get("price")) * 100), costCents: Math.round(Number(form.get("cost")) * 100), compareAtCents: form.get("compareAt") ? Math.round(Number(form.get("compareAt")) * 100) : null, currency: "DZD", status: String(form.get("status")) as Product["status"], category: String(form.get("category")), badge: String(form.get("badge") || "") || null, color: cleanColors.join(", "), colors: cleanColors, shortDescription: String(form.get("short") || ""), description: String(form.get("description") || ""), materials: String(form.get("materials") || ""), care: String(form.get("care") || ""), images, colorImages: Object.fromEntries(Object.entries(colorImages).filter(([color, image]) => cleanColors.includes(color) && images.includes(image))), features: String(form.get("features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean), translations: { en: { name: String(form.get("en-name") || ""), shortDescription: String(form.get("en-short") || ""), description: String(form.get("en-description") || ""), materials: String(form.get("en-materials") || ""), care: String(form.get("en-care") || ""), features: String(form.get("en-features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean) }, ar: { name: String(form.get("ar-name") || ""), shortDescription: String(form.get("ar-short") || ""), description: String(form.get("ar-description") || ""), materials: String(form.get("ar-materials") || ""), care: String(form.get("ar-care") || ""), features: String(form.get("ar-features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean) } }, sizes: cleanSizes, variants: cleanVariants, testimonials: cleanTestimonials, sourceUrl: product?.sourceUrl });
+    const status = String(form.get("status"));
+    // Les etapes masquees ne peuvent pas recevoir le focus, donc la validation native
+    // du navigateur bloquerait l'envoi sans rien montrer. On verifie ici et on ouvre
+    // l'etape qui pose probleme.
+    if (name.trim().length < 2 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || !(Number(form.get("price")) >= 0) || !(Number(form.get("cost")) >= 0)) {
+      setStep(0); onError("Nom, slug, prix et coût sont obligatoires. Le slug n’accepte que des minuscules, des chiffres et des tirets."); return;
+    }
+    if (status === "published" && images.length === 0) { setStep(1); onError("Ajoutez au moins une photo avant de publier."); return; }
+    if (status === "published" && cleanVariants.length === 0) { setStep(2); onError("Ajoutez au moins une taille avant de publier."); return; }
+    onSave({ id: product?.id, name: String(form.get("name")), slug: String(form.get("slug")), priceCents: Math.round(Number(form.get("price")) * 100), costCents: Math.round(Number(form.get("cost")) * 100), compareAtCents: form.get("compareAt") ? Math.round(Number(form.get("compareAt")) * 100) : null, currency: "DZD", status: status as Product["status"], category: String(form.get("category")), badge: String(form.get("badge") || "") || null, color: cleanColors.join(", "), colors: cleanColors, shortDescription: String(form.get("short") || ""), description: String(form.get("description") || ""), materials: String(form.get("materials") || ""), care: String(form.get("care") || ""), images, colorImages: Object.fromEntries(Object.entries(colorImages).filter(([color, image]) => cleanColors.includes(color) && images.includes(image))), features: String(form.get("features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean), translations: { en: { name: String(form.get("en-name") || ""), shortDescription: String(form.get("en-short") || ""), description: String(form.get("en-description") || ""), materials: String(form.get("en-materials") || ""), care: String(form.get("en-care") || ""), features: String(form.get("en-features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean) }, ar: { name: String(form.get("ar-name") || ""), shortDescription: String(form.get("ar-short") || ""), description: String(form.get("ar-description") || ""), materials: String(form.get("ar-materials") || ""), care: String(form.get("ar-care") || ""), features: String(form.get("ar-features") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean) } }, sizes: cleanSizes, variants: cleanVariants, testimonials: cleanTestimonials, sourceUrl: product?.sourceUrl });
   }
   return <div className="modal-backdrop admin-modal"><section><button className="modal-x" onClick={onClose}>×</button><span className="admin-kicker">Catalogue</span><h2>{product ? "Modifier le produit" : "Nouveau produit"}</h2><form onSubmit={submit}>
-    <div className="form-row"><label>Nom<input name="name" defaultValue={product?.name} required /></label><label>Slug<input name="slug" defaultValue={product?.slug} pattern="[a-z0-9]+(-[a-z0-9]+)*" required /></label></div>
-    <div className="form-row three"><label>Prix de vente (DZD)<input name="price" type="number" min="0" step="1" defaultValue={product ? product.priceCents / 100 : ""} required /></label><label>Ancien prix (DZD)<input name="compareAt" type="number" min="0" step="1" defaultValue={product?.compareAtCents ? product.compareAtCents / 100 : ""} /></label><label>Statut<select name="status" defaultValue={product?.status || "draft"}><option value="draft">Brouillon</option><option value="published">Publié</option><option value="archived">Archivé</option></select></label></div>
-    <div className="form-row private-cost-row"><label>Coût d’achat privé (DZD)<input name="cost" type="number" min="0" step="1" defaultValue={product ? product.costCents / 100 : ""} required /></label><p>Visible uniquement dans l’administration. Il sert à calculer le bénéfice des commandes livrées.</p></div>
+    <nav className="editor-steps" aria-label="Etapes du produit">{EDITOR_STEPS.map((label, index) => <button type="button" key={label} className={index === step ? "active" : ""} aria-current={index === step} onClick={() => setStep(index)}><b>{index + 1}</b><span>{label}</span></button>)}</nav>
+    <div className="editor-step" hidden={step !== 0}>
+    <div className="form-row"><label>Nom<input name="name" value={name} onChange={(event) => changeName(event.target.value)} /></label><label>Slug<input name="slug" value={slug} onChange={(event) => { setSlugEdited(true); setSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, "-")); }} /></label></div>
+    <div className="form-row three"><label>Prix de vente (DZD)<input name="price" type="number" min="0" step="1" defaultValue={product ? product.priceCents / 100 : ""} /></label><label>Ancien prix (DZD)<input name="compareAt" type="number" min="0" step="1" defaultValue={product?.compareAtCents ? product.compareAtCents / 100 : ""} /></label><label>Statut<select name="status" defaultValue={product?.status || "draft"}><option value="draft">Brouillon</option><option value="published">Publié</option><option value="archived">Archivé</option></select></label></div>
+    <div className="form-row private-cost-row"><label>Coût d’achat privé (DZD)<input name="cost" type="number" min="0" step="1" defaultValue={product ? product.costCents / 100 : ""} /></label><p>Visible uniquement dans l’administration. Il sert à calculer le bénéfice des commandes livrées.</p></div>
     <div className="form-row"><label>Catégorie<input name="category" defaultValue={product?.category || "Ensembles"} /></label><label>Badge<input name="badge" defaultValue={product?.badge || ""} /></label></div>
+    </div>
+    <div className="editor-step" hidden={step !== 1}>
+    <ImageManager images={images} csrfToken={csrfToken} onChange={setImages} onError={onError} />
     <ColorsEditor colors={colors} onChange={changeColors} />
+    <ColorImageEditor colors={colors} images={images} value={colorImages} onChange={setColorImages} />
+    </div>
+    <div className="editor-step" hidden={step !== 2}>
+    <VariantStockEditor variants={variants} colors={colors} onChange={setVariants} />
+    </div>
+    <div className="editor-step" hidden={step !== 3}>
     <label>Accroche<textarea name="short" rows={2} defaultValue={product?.shortDescription} /></label><label>Description<textarea name="description" rows={4} defaultValue={product?.description} /></label>
     <div className="form-row"><label>Matières<textarea name="materials" rows={3} defaultValue={product?.materials} /></label><label>Entretien<textarea name="care" rows={3} defaultValue={product?.care} /></label></div>
-    <ProductTranslationsEditor product={product} />
-    <ImageManager images={images} csrfToken={csrfToken} onChange={setImages} onError={onError} />
-    <ColorImageEditor colors={colors} images={images} value={colorImages} onChange={setColorImages} />
-    <VariantStockEditor variants={variants} colors={colors} onChange={setVariants} />
     <label>Points forts — un par ligne<textarea name="features" rows={3} defaultValue={product?.features.join("\n")} /></label>
+    <ProductTranslationsEditor product={product} />
     <TestimonialsEditor testimonials={testimonials} onChange={setTestimonials} />
-    <div className="modal-actions"><button type="button" onClick={onClose}>Annuler</button><button className="admin-primary" disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
+    </div>
+    <div className="modal-actions"><button type="button" onClick={onClose}>Annuler</button>{step > 0 && <button type="button" onClick={() => setStep(step - 1)}>← Précédent</button>}{step < EDITOR_STEPS.length - 1 && <button type="button" onClick={() => setStep(step + 1)}>Suivant →</button>}<button className="admin-primary" disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
   </form></section></div>;
 }
 
@@ -409,19 +390,4 @@ function ImageManager({ images, csrfToken, onChange, onError }: { images: string
   }
   function drop(event: DragEvent<HTMLLabelElement>) { event.preventDefault(); setDragging(false); void upload(Array.from(event.dataTransfer.files)); }
   return <div className="image-manager"><div className="field-title">Images du produit</div><label htmlFor={inputId} className={`drop-zone compact ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}><input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => void upload(Array.from(event.target.files || []))} /><strong>{uploading ? "Envoi des photos…" : "Déposez vos photos ici"}</strong><span>Les photos sont publiées telles quelles · la première image servira au guide des tailles</span></label>{images.length > 0 && <div className="uploaded-image-grid">{images.map((image, index) => <div key={`${image}-${index}`}><Image src={image} alt="" fill sizes="120px" unoptimized={image.startsWith("/api/media/")} /><span>{index === 0 ? "Couverture" : index + 1}</span><div><button type="button" disabled={index === 0} onClick={() => onChange([image, ...images.filter((_, itemIndex) => itemIndex !== index)])}>★</button><button type="button" onClick={() => onChange(images.filter((_, itemIndex) => itemIndex !== index))}>×</button></div></div>)}</div>}</div>;
-}
-
-function FileDropzone({ label, help, files, onChange, max }: { label: string; help: string; files: File[]; onChange: (files: File[]) => void; max: number }) {
-  const inputId = useId();
-  const [dragging, setDragging] = useState(false);
-  function add(incoming: File[]) { onChange([...files, ...incoming.filter((file) => file.type.startsWith("image/"))].slice(0, max)); }
-  function input(event: ChangeEvent<HTMLInputElement>) { add(Array.from(event.target.files || [])); event.target.value = ""; }
-  function drop(event: DragEvent<HTMLLabelElement>) { event.preventDefault(); setDragging(false); add(Array.from(event.dataTransfer.files)); }
-  return <div className="file-drop-field"><span className="field-title">{label}</span><label htmlFor={inputId} className={`drop-zone ${dragging ? "dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={drop}><input id={inputId} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={input} /><strong>Glissez-déposez les images ici</strong><span>{help}</span></label>{files.length > 0 && <div className="selected-file-grid">{files.map((file, index) => <FilePreview key={`${file.name}-${file.lastModified}-${index}`} file={file} onRemove={() => onChange(files.filter((_, itemIndex) => itemIndex !== index))} />)}</div>}</div>;
-}
-
-function FilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
-  const source = useMemo(() => URL.createObjectURL(file), [file]);
-  useEffect(() => () => URL.revokeObjectURL(source), [source]);
-  return <div><Image src={source} alt="" width={58} height={58} unoptimized /><span>{file.name}<small>{(file.size / 1024 / 1024).toFixed(1)} Mo</small></span><button type="button" onClick={onRemove}>×</button></div>;
 }

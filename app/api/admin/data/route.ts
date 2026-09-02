@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listImportJobs, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
+import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
 import { syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 import { log, errorMessage } from "@/lib/log";
 import { metaStatus } from "@/lib/meta/config";
@@ -26,8 +26,8 @@ export async function GET() {
     sheetSync = { unknownStates: [], error: message };
     orders = await listOrders();
   }
-  const [stats, products, imports, storeSettings, deliveryRates, deliveryIntegration, expenses] = await Promise.all([
-    dashboardStats(), listProducts(true), listImportJobs(), getStoreSettings(), listDeliveryRates(), getDeliveryIntegration(), listExpenses(),
+  const [stats, products, storeSettings, deliveryRates, deliveryIntegration, expenses] = await Promise.all([
+    dashboardStats(), listProducts(true), getStoreSettings(), listDeliveryRates(), getDeliveryIntegration(), listExpenses(),
   ]);
   return NextResponse.json({
     admin: { email: session.email },
@@ -39,6 +39,6 @@ export async function GET() {
     },
     zrExpress: getZrExpressStatus(),
     sheetSync: { ...sheetSync, depth: await sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })) },
-    products, orders, imports, storeSettings, deliveryRates, deliveryIntegration, expenses,
+    products, orders, storeSettings, deliveryRates, deliveryIntegration, expenses,
   });
 }

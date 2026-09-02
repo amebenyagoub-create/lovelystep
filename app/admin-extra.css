@@ -214,3 +214,23 @@
   .age-size-editor .size-editor-row>:nth-child(3){grid-area:2/2}
   .age-size-editor .size-editor-row>:nth-child(5){grid-area:3/2;justify-self:end;width:42px}
 }
+
+/* Ajout d'un produit en quatre etapes : le formulaire tenait sur un seul ecran de
+   dix-huit champs, ce qui rendait chaque creation penible. */
+.editor-steps{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 6px}
+.editor-steps button{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 15px;font-size:12px;font-weight:800;color:var(--muted)}
+.editor-steps button b{width:20px;height:20px;border-radius:50%;background:rgba(30,65,106,.1);color:var(--navy);display:grid;place-items:center;font-size:11px}
+.editor-steps button:hover{border-color:var(--navy);color:var(--navy)}
+.editor-steps button.active{border-color:var(--navy);color:var(--navy);background:var(--cream)}
+.editor-steps button.active b{background:var(--coral);color:#fff}
+.editor-step{display:grid;gap:16px}
+.editor-step[hidden]{display:none}
+.admin-modal .modal-actions{display:flex;flex-wrap:wrap;gap:9px;justify-content:flex-end;align-items:center}
+
+@media(max-width:800px){
+  .editor-steps{gap:6px}
+  .editor-steps button{padding:7px 11px;font-size:11px;gap:6px}
+  .editor-steps button span{display:none}
+  .admin-modal .modal-actions button{flex:1 1 46%;min-height:44px}
+  .admin-modal .modal-actions .admin-primary{flex-basis:100%}
+}

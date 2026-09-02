@@ -36,7 +36,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": [
+  "exclude": ["_to_delete", "output",
     "node_modules"
   ]
 }
