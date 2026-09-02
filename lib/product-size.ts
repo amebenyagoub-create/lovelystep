@@ -2,17 +2,27 @@ export type StoreLocale = "fr" | "en" | "ar";
 
 export type SizeLike = { label: string; age?: string | null; height?: string | null };
 
-const SUPPLIER_AGE_MAP: Array<[number, string]> = [
+/**
+ * Table des tailles du fournisseur (1688), colonne 身高 : la stature de l'enfant, pas la
+ * longueur du vetement. Le fournisseur note « 尺码偏小 » — ses tailles taillent petit — et la
+ * table integre deja cette marge, donc elle se lit telle quelle. Les codes 130 et 140
+ * prolongent le meme pas : la fiche fournisseur s'arrete a 120.
+ */
+const SUPPLIER_SIZE_TABLE: Array<{ code: number; min: number; max: number; age: string }> = [
+  { code: 80, min: 70, max: 80, age: "9-18 mois" },
+  { code: 90, min: 80, max: 85, age: "18-24 mois" },
+  { code: 100, min: 85, max: 95, age: "2-3 ans" },
+  { code: 110, min: 95, max: 103, age: "3-4 ans" },
+  { code: 120, min: 103, max: 110, age: "4-5 ans" },
+  { code: 130, min: 110, max: 118, age: "5-6 ans" },
+  { code: 140, min: 118, max: 126, age: "6-7 ans" },
+];
+
+/** Gammes bebe : sous 80, le nombre du fournisseur est deja la stature de l'enfant. */
+const BABY_AGE_MAP: Array<[number, string]> = [
   [59, "0-3 mois"],
   [66, "0-3 mois"],
   [73, "4-7 mois"],
-  [80, "8-11 mois"],
-  [90, "1-2 ans"],
-  [100, "2-3 ans"],
-  [110, "3-4 ans"],
-  [120, "4-6 ans"],
-  [130, "6-7 ans"],
-  [140, "7-8 ans"],
 ];
 
 const AGE_HEIGHT_MAP: Record<string, string> = {
@@ -45,14 +55,11 @@ function supplierCode(size: SizeLike): number | null {
   return code ? Number(code) : null;
 }
 
-/**
- * Table du fournisseur : un vêtement marqué 90 habille un enfant de 75 à 85 cm, soit le code
- * moins 15 à moins 5 centimètres. Sans cette règle la stature était déduite de l'âge, ce qui
- * dérivait jusqu'à 15 cm sur les grandes tailles.
- */
 function supplierHeightRange(size: SizeLike): HeightRange | null {
   const code = supplierCode(size);
-  return code !== null && code >= SUPPLIER_HEIGHT_FLOOR ? { min: code - 15, max: code - 5 } : null;
+  if (code === null || code < SUPPLIER_HEIGHT_FLOOR) return null;
+  const row = SUPPLIER_SIZE_TABLE.find((entry) => code <= entry.code);
+  return row ? { min: row.min, max: row.max } : null;
 }
 
 export function frenchAgeLabel(size: SizeLike): string {
@@ -63,7 +70,9 @@ export function frenchAgeLabel(size: SizeLike): string {
   if (!supplierCode) return explicit || String(size.label).trim();
 
   const supplierSize = Number(supplierCode);
-  return SUPPLIER_AGE_MAP.find(([maximum]) => supplierSize <= maximum)?.[1] ?? (explicit || String(size.label).trim());
+  const supplierRow = SUPPLIER_SIZE_TABLE.find((row) => supplierSize <= row.code);
+  if (supplierSize >= SUPPLIER_HEIGHT_FLOOR && supplierRow) return supplierRow.age;
+  return BABY_AGE_MAP.find(([maximum]) => supplierSize <= maximum)?.[1] ?? supplierRow?.age ?? (explicit || String(size.label).trim());
 }
 
 export function localizedAgeLabel(size: SizeLike, locale: StoreLocale): string {
