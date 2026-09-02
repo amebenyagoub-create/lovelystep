@@ -3,19 +3,25 @@ export type StoreLocale = "fr" | "en" | "ar";
 export type SizeLike = { label: string; age?: string | null; height?: string | null };
 
 /**
- * Table des tailles du fournisseur (1688), colonne 身高 : la stature de l'enfant, pas la
- * longueur du vetement. Le fournisseur note « 尺码偏小 » — ses tailles taillent petit — et la
- * table integre deja cette marge, donc elle se lit telle quelle. Les codes 130 et 140
- * prolongent le meme pas : la fiche fournisseur s'arrete a 120.
+ * Stature de l'enfant par code fournisseur — pas la longueur du vetement.
+ *
+ * Deux sources concordantes. La fiche 1688 (colonne 身高) donne 90 -> 80-85, 100 -> 85-95,
+ * 110 -> 95-103, 120 -> 103-110, avec la mention « 尺码偏小 » : la coupe taille petit et la
+ * table porte deja cette marge. Les vetements mesures a plat confirment ces bornes : longueur
+ * du haut 37 / 38 / 40 / 43 cm et longueur de pantalon 48 / 49 / 54 / 56 cm du 90 au 120.
+ *
+ * Le 120 s'arrete a 108 et non 110 : son pantalon ne fait que 56 cm, trop court au-dela.
+ * Les fourchettes se suivent sans se chevaucher pour qu'une stature ne designe qu'une taille.
+ * Les codes 80, 130 et 140 prolongent le meme pas, la fiche fournisseur s'arretant a 120.
  */
 const SUPPLIER_SIZE_TABLE: Array<{ code: number; min: number; max: number; age: string }> = [
-  { code: 80, min: 70, max: 80, age: "9-18 mois" },
-  { code: 90, min: 80, max: 85, age: "18-24 mois" },
-  { code: 100, min: 85, max: 95, age: "2-3 ans" },
-  { code: 110, min: 95, max: 103, age: "3-4 ans" },
-  { code: 120, min: 103, max: 110, age: "4-5 ans" },
-  { code: 130, min: 110, max: 118, age: "5-6 ans" },
-  { code: 140, min: 118, max: 126, age: "6-7 ans" },
+  { code: 80, min: 72, max: 80, age: "12-18 mois" },
+  { code: 90, min: 80, max: 88, age: "18-24 mois" },
+  { code: 100, min: 88, max: 95, age: "2-3 ans" },
+  { code: 110, min: 95, max: 102, age: "3-4 ans" },
+  { code: 120, min: 102, max: 108, age: "4-5 ans" },
+  { code: 130, min: 108, max: 115, age: "5-6 ans" },
+  { code: 140, min: 115, max: 122, age: "6-7 ans" },
 ];
 
 /** Gammes bebe : sous 80, le nombre du fournisseur est deja la stature de l'enfant. */
