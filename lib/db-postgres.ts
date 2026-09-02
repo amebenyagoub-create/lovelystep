@@ -971,6 +971,7 @@ export async function claimProductPagePost(productId: number, pageId: string, re
      ON CONFLICT(product_id) DO UPDATE SET page_id=EXCLUDED.page_id,status='pending',
        attempt_count=meta_product_page_posts.attempt_count+1,last_error=NULL,updated_at=NOW()
      WHERE meta_product_page_posts.status='failed'
+       OR (meta_product_page_posts.status='pending' AND meta_product_page_posts.updated_at < NOW() - INTERVAL '15 minutes')
      RETURNING *`,
     [productId, pageId],
   );
@@ -995,6 +996,9 @@ export async function failProductPagePost(productId: number, error: string): Pro
   );
 }
 
+/** Au-delà de ce délai, un envoi encore "pending" est considéré comme interrompu. */
+const STALE_POST_MS = 15 * 60 * 1000;
+
 export async function productPagePostSummary(): Promise<{
   published: number;
   failed: number;
@@ -1006,8 +1010,10 @@ export async function productPagePostSummary(): Promise<{
     published: posts.filter((post) => post.status === "published").length,
     failed: posts.filter((post) => post.status === "failed").length,
     pending: posts.filter((post) => post.status === "pending").length,
-    failures: posts.filter((post) => post.status === "failed" && post.lastError).slice(0, 8)
-      .map((post) => ({ productId: post.productId, error: post.lastError ?? "Unknown error" })),
+    // Un envoi resté "pending" signifie que le conteneur s'est arrêté en cours de route :
+    // sans cette ligne il n'apparaissait nulle part et aucun bouton ne permettait de le reprendre.
+    failures: posts.filter((post) => (post.status === "failed" && post.lastError) || (post.status === "pending" && Date.now() - Date.parse(post.updatedAt) > STALE_POST_MS)).slice(0, 8)
+      .map((post) => ({ productId: post.productId, error: post.status === "pending" ? "Envoi interrompu avant la réponse de Meta. Relancez-le." : post.lastError ?? "Unknown error" })),
   };
 }
 
@@ -1051,6 +1057,7 @@ export async function claimProductInstagramPost(productId: number, accountId: st
      ON CONFLICT(product_id) DO UPDATE SET account_id=EXCLUDED.account_id,status='pending',
        attempt_count=meta_product_instagram_posts.attempt_count+1,last_error=NULL,updated_at=NOW()
      WHERE meta_product_instagram_posts.status='failed'
+       OR (meta_product_instagram_posts.status='pending' AND meta_product_instagram_posts.updated_at < NOW() - INTERVAL '15 minutes')
      RETURNING *`,
     [productId, accountId],
   );
@@ -1086,8 +1093,10 @@ export async function productInstagramPostSummary(): Promise<{
     published: posts.filter((post) => post.status === "published").length,
     failed: posts.filter((post) => post.status === "failed").length,
     pending: posts.filter((post) => post.status === "pending").length,
-    failures: posts.filter((post) => post.status === "failed" && post.lastError).slice(0, 8)
-      .map((post) => ({ productId: post.productId, error: post.lastError ?? "Unknown error" })),
+    // Un envoi resté "pending" signifie que le conteneur s'est arrêté en cours de route :
+    // sans cette ligne il n'apparaissait nulle part et aucun bouton ne permettait de le reprendre.
+    failures: posts.filter((post) => (post.status === "failed" && post.lastError) || (post.status === "pending" && Date.now() - Date.parse(post.updatedAt) > STALE_POST_MS)).slice(0, 8)
+      .map((post) => ({ productId: post.productId, error: post.status === "pending" ? "Envoi interrompu avant la réponse de Meta. Relancez-le." : post.lastError ?? "Unknown error" })),
   };
 }
 

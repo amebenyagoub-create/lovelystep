@@ -5,7 +5,24 @@ import type { Product } from "../types";
 import { redact } from "./capi";
 import { removeProductFromCatalog, syncCatalog } from "./catalog";
 import { publishProductToInstagram } from "./instagram-posts";
-import { publishProductToFacebookPage } from "./page-posts";
+import { publishProductToFacebookPage, type PublishProductResult } from "./page-posts";
+
+/**
+ * Un envoi refusé avant même l'appel à Meta ne laissait aucune trace : le produit
+ * n'apparaissait ni en publié ni en échec, et rien n'expliquait le silence.
+ */
+const SKIP_EXPLANATIONS: Record<string, string> = {
+  disabled: "Publication automatique demandée, mais META_PAGE_ID ou META_PAGE_ACCESS_TOKEN est absent.",
+  not_published: "Le produit n'était plus publié au moment de l'envoi.",
+  already_claimed: "Une publication existe déjà pour ce produit, ou un envoi précédent est resté bloqué.",
+  missing_image: "Le produit n'a aucune image publiable.",
+  invalid_site_url: "SITE_URL doit être une adresse https publique pour que Meta puisse charger les photos.",
+};
+
+async function recordSkippedAnnouncement(channel: "page_post" | "instagram_post", productId: number, result: PublishProductResult): Promise<void> {
+  if (result.ok || !result.skipped) return;
+  await recordSyncResult(channel, false, SKIP_EXPLANATIONS[result.skipped] ?? result.skipped, { productId, skipped: result.skipped }).catch(() => undefined);
+}
 
 export function productMetaAutomationPlan(previous: Product | null, product: Product): {
   catalog: boolean;
@@ -37,8 +54,8 @@ export async function runProductMetaAutomation(previous: Product | null, product
       await recordSyncResult("catalog", false, message, { trigger: "product_save", productId: product.id }).catch(() => undefined);
     }
   }
-  if (plan.pagePost) await publishProductToFacebookPage(product);
-  if (plan.instagramPost) await publishProductToInstagram(product);
+  if (plan.pagePost) await recordSkippedAnnouncement("page_post", product.id, await publishProductToFacebookPage(product));
+  if (plan.instagramPost) await recordSkippedAnnouncement("instagram_post", product.id, await publishProductToInstagram(product));
 }
 
 export async function runDeletedProductMetaAutomation(product: Product): Promise<void> {
