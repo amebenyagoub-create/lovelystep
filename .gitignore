@@ -52,3 +52,7 @@ lovelystep-server.*.log
 /.wrangler/
 /outputs/
 /work/
+
+# fichiers de travail sortis du projet, jamais destines au depot
+/_to_delete/
+/output/
