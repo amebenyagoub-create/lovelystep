@@ -13,6 +13,21 @@ import { graphDeleteWithAccessToken, graphPostWithAccessToken } from "./graph";
 
 const MAX_FACEBOOK_POST_IMAGES = 10;
 
+/**
+ * Meta renvoie « (#200) Unpublished posts must be posted to a page as the page itself »
+ * quand META_PAGE_ACCESS_TOKEN est un jeton utilisateur et non celui de la Page. Le message
+ * brut ne dit pas quoi corriger, alors qu'un seul jeton est en cause.
+ */
+function explainGraphError(message: string): string {
+  if (/#200|as the page itself|pages_manage_posts/i.test(message)) {
+    return `${message} — META_PAGE_ACCESS_TOKEN doit etre le jeton de la Page (GET /me/accounts), pas votre jeton personnel.`;
+  }
+  if (/#190|expired|Session has expired/i.test(message)) {
+    return `${message} — le jeton de la Page a expire, regenerez-le puis remplacez META_PAGE_ACCESS_TOKEN.`;
+  }
+  return message;
+}
+
 export type MetaPagePostingStatus = {
   enabled: boolean;
   pageConfigured: boolean;
@@ -127,7 +142,7 @@ export async function publishProductToFacebookPage(product: Product, retryFailed
     await recordSyncResult("page_post", true, null, { productId: product.id, postId, imageCount: photoIds.length });
     return { ok: true, postId };
   } catch (error) {
-    const message = redact(error instanceof Error ? error.message : "Facebook Page publication failed.");
+    const message = explainGraphError(redact(error instanceof Error ? error.message : "Facebook Page publication failed."));
     await failProductPagePost(product.id, message).catch(() => undefined);
     await recordSyncResult("page_post", false, message, { productId: product.id }).catch(() => undefined);
     return { ok: false, error: message };
