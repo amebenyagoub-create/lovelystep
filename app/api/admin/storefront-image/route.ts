@@ -26,8 +26,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Choisissez une image JPG, PNG ou WebP de 15 Mo maximum." }, { status: 400 });
     }
     const filename = `hero-${Date.now().toString(36)}-${crypto.randomBytes(6).toString("hex")}.webp`;
-    const output = await sharp(Buffer.from(await file.arrayBuffer()), { failOn: "error", limitInputPixels: 80_000_000 })
-      .rotate()
+    const source = sharp(Buffer.from(await file.arrayBuffer()), { failOn: "error", limitInputPixels: 80_000_000 }).rotate();
+    // La banniere couvre un cadre haut sur telephone : une image carree y est rognee de moitie
+    // et une image etroite est agrandie, ce qui se voit immediatement.
+    const { width = 0, height = 0 } = await source.metadata();
+    const warnings = [
+      width && width < 1800 ? `Image de ${width} px de large : elle sera agrandie sur telephone et paraitra floue. Visez 2000 px minimum.` : "",
+      width && height && height / width < 1.2 ? "Image presque carree ou panoramique : le cadre mobile est haut et etroit, il en rognera les cotes. Une photo verticale tient mieux." : "",
+    ].filter(Boolean);
+    const output = await source.clone()
       .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
       .webp({ quality: 92, effort: 4 })
       .toBuffer();
@@ -39,7 +46,7 @@ export async function POST(request: Request) {
     }
     const image = `/api/media/storefront/${filename}`;
     await audit(session.adminId, "storefront.hero.upload", "settings", "storefront", { image });
-    return NextResponse.json({ image });
+    return NextResponse.json({ image, warnings });
   } catch {
     return NextResponse.json({ error: "Cette image est illisible ou endommagée." }, { status: 400 });
   }

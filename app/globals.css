@@ -467,3 +467,20 @@
   .product-panel>.product-lead{order:11;margin-top:18px}
   .product-panel>.product-reassurance{order:12}
 }
+
+/* Page d'accueil sur telephone : la banniere occupait 760 px, soit tout le premier
+   ecran, et la bande de reassurance en poussait encore 240. Les produits
+   n'apparaissaient qu'au troisieme ecran. */
+@media(max-width:800px){
+  .hero{min-height:min(600px,76vh)}
+  .hero-copy{padding:44px 22px 215px}
+  .hero h1{font-size:clamp(34px,9vw,42px);margin:14px 0 16px}
+  .hero-copy>p{font-size:15px;line-height:1.55}
+  .mini-trust{margin-top:22px;gap:14px;font-size:12px}
+  .trust-strip{grid-template-columns:1fr 1fr;gap:14px 12px;padding:20px 15px}
+  .trust-strip article{gap:9px}
+  .trust-strip svg{width:26px;min-width:26px}
+  .trust-strip strong{font-size:12px;line-height:1.2}
+  .trust-strip span{font-size:10px;margin-top:2px}
+  .collection{padding-top:44px}
+}

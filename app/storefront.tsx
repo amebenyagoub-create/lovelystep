@@ -157,7 +157,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
     </header>
     <main>
       <section className="hero">
-        <div className="hero-backdrop" aria-hidden="true"><Image src={heroImage} alt="" fill priority sizes="100vw" /></div>
+        <div className="hero-backdrop" aria-hidden="true"><Image src={heroImage} alt="" fill priority quality={90} sizes="(max-width: 800px) 200vw, 100vw" /></div>
         <div className="hero-copy"><span className="eyebrow">{text(settings.heroEyebrow)}</span><h1>{text(settings.heroTitle)} <em>{text(settings.heroAccent)}</em></h1><p>{text(settings.heroDescription)}</p><div className="hero-actions"><a className="primary-button" href="#nouveautes">{text(settings.primaryCta)}</a><a className="text-link" href="#notre-promesse">{t("promise")} <Icon name="arrow" /></a></div><div className="mini-trust"><span>✓ {t("noOnline")}</span><span>✓ {t("phoneConfirm")}</span></div></div>
       </section>
       <section className="trust-strip" id="notre-promesse">{[{ icon: "cash" as const, title: t("cod"), copy: t("codText") }, { icon: "truck" as const, title: t("tracked"), copy: t("trackedText") }, { icon: "heart" as const, title: t("children"), copy: t("childrenText") }, { icon: "shield" as const, title: t("exchange"), copy: t("exchangeText") }].map((item) => <article key={item.title}><Icon name={item.icon} /><div><strong>{item.title}</strong><span>{item.copy}</span></div></article>)}</section>

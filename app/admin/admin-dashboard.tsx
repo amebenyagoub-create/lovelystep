@@ -201,6 +201,7 @@ function StorefrontEditor({ settings, images, csrfToken, busy, onError, onSave }
       const result = await response.json().catch(() => ({}));
       if (!response.ok) { onError(result.error || "Import de l’image impossible."); return; }
       setValue((current) => ({ ...current, heroImage: result.image }));
+      if (Array.isArray(result.warnings) && result.warnings.length) onError(result.warnings.join(" "));
     } catch {
       onError("Connexion interrompue pendant l’import de l’image.");
     } finally {
