@@ -433,3 +433,37 @@
   .size-options button{min-height:74px}
   .size-options button em{font-size:10px}
 }
+
+/* Galerie produit : une vraie piste a glisser. L'image unique + vignettes ne se
+   feuilletait pas au doigt, ce que tout acheteur mobile essaie en premier. */
+.gallery-track{position:absolute;inset:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none;-ms-overflow-style:none}
+.gallery-track::-webkit-scrollbar{display:none}
+.gallery-slide{position:relative;flex:0 0 100%;height:100%;scroll-snap-align:center;scroll-snap-stop:always}
+.gallery-dots{display:none;gap:7px;justify-content:center;align-items:center;margin-top:12px}
+.gallery-dots button{width:7px;height:7px;padding:0;border:0;border-radius:50%;background:rgba(30,65,106,.22);transition:width .2s,background .2s}
+.gallery-dots button.active{width:22px;border-radius:999px;background:var(--coral)}
+
+@media(max-width:800px){
+  /* Au-dessus de la ligne de flottaison : photo, titre, prix, tailles, bouton.
+     Le fil d'Ariane et le paragraphe de presentation repoussaient le prix hors ecran. */
+  .product-page .breadcrumbs{display:none}
+  .announcement{white-space:nowrap;overflow:hidden;font-size:8px;letter-spacing:.05em;padding:0 8px}
+  .gallery-main{aspect-ratio:1;border-radius:0;margin-inline:-14px;width:calc(100% + 28px)}
+  .gallery-main img{object-fit:cover}
+  .product-panel>.product-category{font-size:10px;margin-top:7px}
+  .gallery-dots{display:flex}
+  .thumbnails{display:none}
+  .product-panel{display:flex;flex-direction:column}
+  .product-panel>.badge{order:1;align-self:flex-start}
+  .product-panel>.product-category{order:2}
+  .product-panel>h1{order:3;font-size:clamp(21px,5.6vw,26px);line-height:1.15;margin:5px 0 7px}
+  .product-panel>.rating-summary{order:4}
+  .product-panel>.detail-price{order:5;margin:12px 0 4px}
+  .product-panel>.color-picker{order:6;margin:18px 0 0}
+  .product-panel>.size-picker{order:7;margin:18px 0}
+  .product-panel>.buy-row{order:8}
+  .product-panel>.form-error{order:9;margin-top:10px}
+  .product-panel>.cod-card{order:10;margin-top:18px}
+  .product-panel>.product-lead{order:11;margin-top:18px}
+  .product-panel>.product-reassurance{order:12}
+}

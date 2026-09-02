@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import LanguageSwitcher from "@/app/language-switcher";
 import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { localizedAgeLabel, recommendSize, recommendedHeightLabel } from "@/lib/product-size";
@@ -38,6 +38,12 @@ export default function ProductDetail({ product, related }: { product: PublicPro
   const [quantity, setQuantity] = useState(1);
   const [notice, setNotice] = useState("");
   const [childHeight, setChildHeight] = useState("");
+  const gallery = useMemo(() => product.images.length ? product.images : ["/images/soft-days.jpg"], [product.images]);
+  const activeIndex = Math.max(0, gallery.indexOf(activeImage));
+  const galleryTrack = useRef<HTMLDivElement | null>(null);
+  // Une pastille ou une couleur fait defiler la piste ; un glissement du doigt ne doit pas
+  // etre repris en sens inverse par ce meme effet, d'ou le drapeau.
+  const slideFromTouch = useRef(false);
   const availableSizes = useMemo(() => product.variants.length
     ? product.variants.filter((variant) => variant.color === selectedColor).map((variant) => ({ label: variant.size, stock: variant.stock, age: variant.age, weight: variant.weight, height: variant.height }))
     : product.sizes, [product.sizes, product.variants, selectedColor]);
@@ -47,6 +53,21 @@ export default function ProductDetail({ product, related }: { product: PublicPro
   const reviewCount = product.testimonials.length;
   const ratings = product.testimonials.flatMap((item) => item.rating ? [item.rating] : []);
   const reviewAverage = ratings.length ? ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length : 0;
+
+  useEffect(() => {
+    const track = galleryTrack.current;
+    if (!track) return;
+    if (slideFromTouch.current) { slideFromTouch.current = false; return; }
+    const target = activeIndex * track.clientWidth;
+    if (Math.abs(track.scrollLeft - target) > 4) track.scrollTo({ left: target, behavior: "smooth" });
+  }, [activeIndex]);
+
+  function syncSlide() {
+    const track = galleryTrack.current;
+    if (!track || !track.clientWidth) return;
+    const next = gallery[Math.round(track.scrollLeft / track.clientWidth)];
+    if (next && next !== activeImage) { slideFromTouch.current = true; setActiveImage(next); }
+  }
 
   useEffect(() => {
     void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: `/produits/${product.slug}`, productId: product.id }) }).catch(() => undefined);
@@ -83,7 +104,7 @@ export default function ProductDetail({ product, related }: { product: PublicPro
     <main>
       <div className="breadcrumbs"><Link href="/">{copy.home}</Link><span>/</span><span>{product.category}</span><span>/</span><strong>{display.name}</strong></div>
       <section className="product-detail-grid">
-        <div className="gallery"><div className="gallery-main"><Image src={activeImage} alt={display.name} fill priority sizes="(max-width: 900px) 100vw, 55vw" />{product.images.length > 1 && <span className="gallery-count">{Math.max(1, product.images.indexOf(activeImage) + 1)} / {product.images.length}</span>}</div>{product.images.length > 1 && <div className="thumbnails">{product.images.map((image) => <button type="button" aria-label={`${display.name} ${product.images.indexOf(image) + 1}`} key={image} className={image === activeImage ? "active" : ""} onClick={() => setActiveImage(image)}><Image src={image} alt="" fill sizes="90px" /></button>)}</div>}</div>
+        <div className="gallery"><div className="gallery-main"><div className="gallery-track" ref={galleryTrack} onScroll={syncSlide}>{gallery.map((image, index) => <div className="gallery-slide" key={`slide-${index}`}><Image src={image} alt={`${display.name} ${index + 1}`} fill priority={index === 0} sizes="(max-width: 900px) 100vw, 55vw" /></div>)}</div>{gallery.length > 1 && <span className="gallery-count">{activeIndex + 1} / {gallery.length}</span>}</div>{gallery.length > 1 && <div className="gallery-dots">{gallery.map((image, index) => <button type="button" key={`dot-${index}`} aria-label={`Photo ${index + 1}`} aria-current={index === activeIndex} className={index === activeIndex ? "active" : ""} onClick={() => setActiveImage(image)} />)}</div>}{gallery.length > 1 && <div className="thumbnails">{gallery.map((image, index) => <button type="button" aria-label={`${display.name} ${index + 1}`} key={`thumb-${index}`} className={index === activeIndex ? "active" : ""} onClick={() => setActiveImage(image)}><Image src={image} alt="" fill sizes="90px" /></button>)}</div>}</div>
         <div className="product-panel">{outOfStock ? <span className="badge standalone badge-out-of-stock">{outOfStockLabel}</span> : product.badge && <span className="badge standalone">{product.badge}</span>}<span className="product-category">{product.category}</span><h1>{display.name}</h1>{reviewCount > 0 && <a className="rating-summary" href="#avis">{reviewAverage > 0 && <><span>{"★".repeat(Math.round(reviewAverage))}{"☆".repeat(5 - Math.round(reviewAverage))}</span><strong>{reviewAverage.toFixed(1)}</strong></>}<u>{reviewCount} {copy.reviews}</u></a>}<p className="product-lead">{display.shortDescription}</p><div className="detail-price"><strong>{money(product.priceCents)}</strong>{product.compareAtCents && <del>{money(product.compareAtCents)}</del>}{product.compareAtCents && <span>{copy.save} {money(product.compareAtCents - product.priceCents)}</span>}</div>
           <div className="cod-card"><span>✓</span><div><strong>{copy.cod}</strong><p>{copy.codText}</p></div></div>
           {colors.length > 0 && <fieldset className="color-picker"><legend>{t("color")} <strong>{selectedColor}</strong></legend><div>{colors.map((color) => { const colorImage = product.colorImages[color] || product.images[0]; return <button type="button" key={color} aria-pressed={selectedColor === color} className={selectedColor === color ? "selected" : ""} onClick={() => selectColor(color)}>{colorImage && <Image src={colorImage} alt="" width={46} height={54} />}<span>{color}</span></button>; })}</div></fieldset>}
