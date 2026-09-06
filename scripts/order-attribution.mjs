@@ -33,6 +33,7 @@ try {
   const { rows } = await client.query(
     `SELECT o.id, o.order_number, o.status, o.created_at,
             a.utm_source, a.utm_medium, a.utm_campaign, a.utm_content, a.utm_term,
+            a.first_utm_campaign, a.first_landing_page,
             a.fbclid, a.fbc, a.fbp, a.landing_page, a.referrer
      FROM orders o LEFT JOIN meta_attribution a ON a.order_id = o.id
      WHERE o.created_at > NOW() - ($1::int * INTERVAL '1 day')
@@ -51,6 +52,11 @@ try {
     console.log(`    fbclid       : ${row.fbclid ? "present" : "(none)"}    fbc: ${row.fbc ? "present" : "(none)"}    fbp: ${row.fbp ? "present" : "(none)"}`);
     console.log(`    landing page : ${row.landing_page ?? "(none)"}`);
     console.log(`    referrer     : ${row.referrer ?? "(none)"}`);
+    // First touch is the recovery path: an internal navigation used to blank the last touch.
+    const firstKey = normalize(row.first_utm_campaign);
+    console.log(`    FIRST touch  : utm_campaign=${row.first_utm_campaign ?? "(none)"} landing=${row.first_landing_page ?? "(none)"}`);
+    const effective = key || firstKey;
+    console.log(`    -> effective : ${effective ? `"${effective}"` : "UNATTRIBUTED"}${!key && firstKey ? "  (recovered from first touch)" : ""}`);
   }
   console.log("\nAn order matches a campaign only when its utm_campaign key equals the normalised");
   console.log("Meta campaign name. LS_COLD_SEP26 normalises to: " + normalize("LS_COLD_SEP26"));

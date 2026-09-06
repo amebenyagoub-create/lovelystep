@@ -44,7 +44,11 @@ function convertMinor(row: CampaignInsightDailyRecord, amount: number, rates: Ma
 function orderCampaign(order: Order): string {
   const attribution = order.attribution;
   if (!attribution) return "";
-  return normalizeCampaignName(attribution.utmCampaign);
+  // Last-touch is the intended signal. Fall back to the first touch when it is empty: orders
+  // placed before the mergeAttribution fix had their last touch blanked by an internal
+  // navigation, and first_utm_campaign still holds the campaign that actually brought them.
+  // This reads stored measurement, it does not guess.
+  return normalizeCampaignName(attribution.utmCampaign) || normalizeCampaignName(attribution.firstUtmCampaign);
 }
 
 function toDaily(row: CampaignInsightDailyRecord, rates: Map<string, number>): CampaignDailyMetric {
