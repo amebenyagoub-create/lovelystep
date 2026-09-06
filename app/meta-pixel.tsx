@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { marketingAllowed } from "@/lib/meta/consent";
 import { useConsent } from "@/lib/meta/use-consent";
 import { randomEventId } from "@/lib/meta/events";
+import { flushPendingMetaEvents } from "@/lib/meta-pixel";
 
 type MetaQueue = NonNullable<Window["fbq"]> & {
   callMethod?: (...args: unknown[]) => void;
@@ -55,6 +56,7 @@ export default function MetaPixel({ pixelId }: { pixelId: string }) {
     }
     // A unique eventID per PageView keeps client-side navigations from collapsing into one event.
     window.fbq!("track", "PageView", {}, { eventID: randomEventId() });
+    flushPendingMetaEvents();
   }, [pathname, pixelId, allowed]);
 
   return null;

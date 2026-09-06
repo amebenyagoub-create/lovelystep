@@ -89,6 +89,12 @@ check("Pixel initialization is queued before PageView", () => {
   assert.ok(init >= 0 && pageView > init, "fbq init must precede PageView");
 });
 
+const pixelHelper = await readFile(new URL("../lib/meta-pixel.ts", import.meta.url), "utf8");
+check("events wait in a queue until the Pixel is ready", () => {
+  assert.ok(pixelHelper.includes("_lovelyStepPendingMetaEvents"));
+  assert.ok(pixelComponent.includes("flushPendingMetaEvents()"));
+});
+
 const productDetail = await readFile(new URL("../app/produits/[slug]/product-detail.tsx", import.meta.url), "utf8");
 check("ViewContent waits for consent and Pixel initialization", () => {
   assert.ok(productDetail.includes("marketingAllowed(useConsent())"));
