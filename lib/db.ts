@@ -130,6 +130,9 @@ db.exec(`
     wilaya_name_ar TEXT NOT NULL DEFAULT '',
     home_cents INTEGER NOT NULL DEFAULT 0 CHECK(home_cents >= 0),
     office_cents INTEGER NOT NULL DEFAULT 0 CHECK(office_cents >= 0),
+    carrier_home_cents INTEGER NOT NULL DEFAULT 0 CHECK(carrier_home_cents >= 0),
+    carrier_office_cents INTEGER NOT NULL DEFAULT 0 CHECK(carrier_office_cents >= 0),
+    return_cost_cents INTEGER NOT NULL DEFAULT 15000 CHECK(return_cost_cents >= 0),
     active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -185,7 +188,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
 `);
 
-function ensureColumn(table: "products" | "orders", column: string, definition: string): void {
+function ensureColumn(table: "products" | "orders" | "delivery_rates", column: string, definition: string): void {
   const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((item) => item.name));
   if (columns.has(column)) return;
   try {
@@ -220,6 +223,11 @@ db.prepare("UPDATE products SET size_guide_image=replace(size_guide_image, '/gen
 const seedDeliveryRate = db.prepare(`INSERT OR IGNORE INTO delivery_rates
   (wilaya_code,wilaya_name_fr,wilaya_name_ar,home_cents,office_cents,active) VALUES (?,?,?,0,0,1)`);
 for (const wilaya of algeriaWilayas) seedDeliveryRate.run(wilaya.code, wilaya.nameFr, wilaya.nameAr);
+// Carrier costs mirror lib/postgres-schema.sql. CHECK constraints stay in CREATE TABLE only:
+// SQLite's ALTER TABLE ADD COLUMN is fussier than Postgres's about them.
+ensureColumn("delivery_rates", "carrier_home_cents", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("delivery_rates", "carrier_office_cents", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("delivery_rates", "return_cost_cents", "INTEGER NOT NULL DEFAULT 15000");
 
 const seedProducts = [
   { slug: "ensemble-journee-ensoleillee", name: "Ensemble Journée Ensoleillée", price: 349000, compareAt: 429000, badge: "Best-seller", category: "Ensembles", image: "/images/sunny-set.jpg", color: "Bleu piscine", sizes: ["3-4 ans", "5-6 ans", "7-8 ans"] },
@@ -546,7 +554,9 @@ export function saveStoreSettings(settings: StoreSettings): StoreSettings {
 export function listDeliveryRates(): DeliveryRate[] {
   return (db.prepare("SELECT * FROM delivery_rates ORDER BY CAST(wilaya_code AS INTEGER)").all() as Row[]).map((row) => ({
     wilayaCode: String(row.wilaya_code), wilayaNameFr: String(row.wilaya_name_fr), wilayaNameAr: String(row.wilaya_name_ar ?? ""),
-    homeCents: Number(row.home_cents), officeCents: Number(row.office_cents), active: Number(row.active) === 1,
+    homeCents: Number(row.home_cents), officeCents: Number(row.office_cents),
+    carrierHomeCents: Number(row.carrier_home_cents ?? 0), carrierOfficeCents: Number(row.carrier_office_cents ?? 0),
+    returnCostCents: Number(row.return_cost_cents ?? 0), active: Number(row.active) === 1,
   }));
 }
 
@@ -555,9 +565,9 @@ export function getDeliveryRate(wilayaCode: string): DeliveryRate | null {
 }
 
 export function saveDeliveryRates(rates: DeliveryRate[]): DeliveryRate[] {
-  const statement = db.prepare(`UPDATE delivery_rates SET home_cents=?,office_cents=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE wilaya_code=?`);
+  const statement = db.prepare(`UPDATE delivery_rates SET home_cents=?,office_cents=?,carrier_home_cents=?,carrier_office_cents=?,return_cost_cents=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE wilaya_code=?`);
   db.transaction(() => {
-    for (const rate of rates) statement.run(rate.homeCents, rate.officeCents, rate.active ? 1 : 0, rate.wilayaCode);
+    for (const rate of rates) statement.run(rate.homeCents, rate.officeCents, rate.carrierHomeCents, rate.carrierOfficeCents, rate.returnCostCents, rate.active ? 1 : 0, rate.wilayaCode);
   })();
   return listDeliveryRates();
 }
