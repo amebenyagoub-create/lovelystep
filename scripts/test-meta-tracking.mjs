@@ -89,6 +89,12 @@ check("Pixel initialization is queued before PageView", () => {
   assert.ok(init >= 0 && pageView > init, "fbq init must precede PageView");
 });
 
+const productDetail = await readFile(new URL("../app/produits/[slug]/product-detail.tsx", import.meta.url), "utf8");
+check("ViewContent waits for consent and Pixel initialization", () => {
+  assert.ok(productDetail.includes("marketingAllowed(useConsent())"));
+  assert.ok(productDetail.includes('setTimeout(() => trackMeta("ViewContent"'));
+});
+
 // --- Deduplication against a real database -------------------------------------
 const connectionString = process.env.TEST_DATABASE_URL;
 if (!connectionString) {

@@ -10,7 +10,9 @@ import { localizedAgeLabel, recommendSize, recommendedHeightLabel } from "@/lib/
 import { isProductOutOfStock } from "@/lib/product-stock";
 import type { PublicProduct } from "@/lib/types";
 import { trackMeta } from "@/lib/meta-pixel";
+import { marketingAllowed } from "@/lib/meta/consent";
 import { contentId } from "@/lib/meta/events";
+import { useConsent } from "@/lib/meta/use-consent";
 import { useLocale } from "@/lib/use-locale";
 import { deliveryPromise } from "@/lib/delivery-promise";
 
@@ -23,6 +25,7 @@ const productCopy = {
 
 export default function ProductDetail({ product, related }: { product: PublicProduct; related: PublicProduct[] }) {
   const router = useRouter();
+  const trackingAllowed = marketingAllowed(useConsent());
   const colors = product.colors.length ? product.colors : (product.color ? [product.color] : []);
   const [activeImage, setActiveImage] = useState(product.colorImages[colors[0]] || product.images[0] || "/images/soft-days.jpg");
   const { locale, setLocale, dir, t } = useLocale();
@@ -71,8 +74,14 @@ export default function ProductDetail({ product, related }: { product: PublicPro
 
   useEffect(() => {
     void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: `/produits/${product.slug}`, productId: product.id }) }).catch(() => undefined);
-    trackMeta("ViewContent", { content_ids: [contentId(product.slug)], content_type: "product", content_name: product.name, content_category: product.category, value: product.priceCents / 100, currency: "DZD" });
   }, [product.id, product.priceCents, product.slug, product.name, product.category]);
+
+  useEffect(() => {
+    if (!trackingAllowed) return;
+    // Let MetaPixel initialize and emit PageView first, including just after consent is granted.
+    const timer = window.setTimeout(() => trackMeta("ViewContent", { content_ids: [contentId(product.slug)], content_type: "product", content_name: product.name, content_category: product.category, value: product.priceCents / 100, currency: "DZD" }), 0);
+    return () => window.clearTimeout(timer);
+  }, [trackingAllowed, product.id, product.priceCents, product.slug, product.name, product.category]);
 
   function selectColor(color: string) {
     setSelectedColor(color);
