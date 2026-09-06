@@ -42,7 +42,7 @@ function campaignMetrics(analysis: CampaignAnalysis): BreakdownMetrics {
     clicks: advertising.clicks,
     linkClicks: advertising.linkClicks,
     ctrPercent: advertising.impressions > 0 ? (advertising.clicks / advertising.impressions) * 100 : null,
-    linkCtrPercent: advertising.ctrPercent,
+    linkCtrPercent: advertising.impressions > 0 ? (advertising.linkClicks / advertising.impressions) * 100 : null,
     cpmMinor: advertising.cpmMinor,
     cpcMinor: advertising.cpcMinor,
     landingPageViews: advertising.landingPageViews,
@@ -150,7 +150,7 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
           <Metric label="Daily reach sum" value={kpis.advertising.reach.toLocaleString("en-US")} />
           <Metric label="Frequency" value={number(kpis.advertising.frequency, "", 2)} />
           <Metric label="Link clicks" value={kpis.advertising.linkClicks.toLocaleString("en-US")} />
-          <Metric label="CTR (link)" value={number(kpis.advertising.ctrPercent, "%", 2)} note="link clicks / impressions" />
+          <Metric label="CTR (link)" value={number(kpis.advertising.impressions > 0 ? (kpis.advertising.linkClicks / kpis.advertising.impressions) * 100 : null, "%", 2)} note="link clicks / impressions" />
           <Metric label="CPC (link)" value={money(kpis.advertising.cpcMinor)} note="cost per link click" />
           <Metric label="CPM" value={money(kpis.advertising.cpmMinor)} />
           <Metric label="Meta CPA" value={money(kpis.advertising.metaCpaMinor)} />
@@ -176,12 +176,13 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
   </article>;
 }
 
-export default function CampaignIntelligencePanel() {
+export default function CampaignIntelligencePanel({ csrfToken }: { csrfToken: string }) {
   const [since, setSince] = useState(isoDay(-29));
   const [until, setUntil] = useState(isoDay(0));
   const [data, setData] = useState<CampaignIntelligenceResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -196,13 +197,36 @@ export default function CampaignIntelligencePanel() {
       setLoading(false);
     }
   }, [since, until]);
+
+  /**
+   * Pull fresh insights from Meta, then recompute. The analysis reads meta_ads_insights_daily,
+   * so recomputing alone can only ever restate the last sync — which made a button labelled
+   * "Refresh" look broken whenever Meta had moved on.
+   */
+  const syncThenLoad = useCallback(async () => {
+    setSyncing(true); setError("");
+    try {
+      const response = await fetch("/api/admin/meta/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
+        body: JSON.stringify({ target: "insights" }),
+      });
+      const value = await response.json().catch(() => ({}));
+      if (!response.ok) setError(value.error || "Meta sync failed; showing the last stored data.");
+    } catch {
+      setError("Meta sync could not be reached; showing the last stored data.");
+    } finally {
+      setSyncing(false);
+    }
+    await load();
+  }, [csrfToken, load]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
   const counts = useMemo(() => Object.fromEntries(statusOrder.map((status) => [status, data?.analyses.filter((analysis) => analysis.decision.status === status).length ?? 0])) as Record<CampaignDecisionStatus, number>, [data]);
   const sorted = useMemo(() => [...(data?.analyses ?? [])].sort((a, b) => statusOrder.indexOf(a.decision.status) - statusOrder.indexOf(b.decision.status) || (b.kpis.advertising.spendMinor ?? 0) - (a.kpis.advertising.spendMinor ?? 0)), [data]);
 
   return <div className="campaign-intelligence-panel">
-    <section className="admin-card campaign-manager-hero"><div><span className="admin-kicker">Deterministic campaign manager</span><h2>Decisions first. Evidence on demand.</h2><p>Meta performance, store attribution, COD delivery outcomes, and real margin are evaluated together. AI explains the rule-based result but cannot change it.</p></div><div className="campaign-freshness"><span className={data?.dataFreshness.stale ? "stale" : "fresh"}>{data?.dataFreshness.stale ? "Data needs attention" : "Data current"}</span><small>{data?.dataFreshness.note || "Checking Meta freshness…"}</small><button type="button" onClick={() => void load()} disabled={loading}>{loading ? "Analyzing…" : "Refresh analysis"}</button></div></section>
+    <section className="admin-card campaign-manager-hero"><div><span className="admin-kicker">Deterministic campaign manager</span><h2>Decisions first. Evidence on demand.</h2><p>Meta performance, store attribution, COD delivery outcomes, and real margin are evaluated together. AI explains the rule-based result but cannot change it.</p></div><div className="campaign-freshness"><span className={data?.dataFreshness.stale ? "stale" : "fresh"}>{data?.dataFreshness.stale ? "Data needs attention" : "Data current"}</span><small>{data?.dataFreshness.note || "Checking Meta freshness…"}</small><button type="button" onClick={() => void syncThenLoad()} disabled={loading || syncing}>{syncing ? "Syncing Meta…" : loading ? "Analyzing…" : "Sync and refresh"}</button></div></section>
 
     <section className="admin-card filter-bar"><div className="filter-row"><div className="range-presets">{ranges.map(([label, days]) => <button key={label} type="button" className={Date.parse(until) - Date.parse(since) === days * 86_400_000 ? "active" : ""} onClick={() => { setSince(isoDay(-days)); setUntil(isoDay(0)); }}>{label}</button>)}</div><label>From<input type="date" value={since} max={until} onChange={(event) => setSince(event.target.value)} /></label><label>To<input type="date" value={until} min={since} onChange={(event) => setUntil(event.target.value)} /></label></div><p className="filter-note">Africa/Algiers · DZD · Store attribution uses last-touch utm_campaign name matching</p></section>
 
