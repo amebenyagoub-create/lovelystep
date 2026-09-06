@@ -21,6 +21,8 @@
     "test:meta": "node --env-file=.env.local scripts/test-meta-tracking.mjs",
     "test:meta-funnel": "node --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-meta-funnel-capi.mjs",
     "test:meta-ads": "node --env-file=.env.local scripts/test-meta-ads-catalog.mjs",
+    "meta:bootstrap": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/meta-bootstrap.mjs",
+    "cron:meta-sync": "node scripts/cron-meta-sync.mjs",
     "test:kpis": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-finance-kpis.mjs",
     "test:attribution": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-attribution.mjs",
     "test:integration": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-meta-integration.mjs",

@@ -56,3 +56,7 @@ lovelystep-server.*.log
 # fichiers de travail sortis du projet, jamais destines au depot
 /_to_delete/
 /output/
+
+# visuels publicitaires generes a la racine et scratch : jamais destines au depot
+/lovely-step-*.png
+/tmp/

@@ -65,6 +65,13 @@ désactivé depuis l'onglet Meta.
 8. Saisir les taux de change si le compte n'est pas en DZD, sinon toutes les métriques de
    dépense resteront indisponibles — par choix, pas par bug.
 9. Planifier `POST /api/cron/meta-sync` (quotidien) avec `Authorization: Bearer $CRON_SECRET`.
+   Sur Railway : créer un **second service** sur le même dépôt, `startCommand`
+   `node scripts/cron-meta-sync.mjs`, `cronSchedule` `0 4 * * *` (05 h à Alger, après la
+   clôture de la journée du compte). Voir `railway.cron.json`. Copier `CRON_SECRET` et
+   `SITE_URL` (ou `CRON_TARGET_URL`) sur ce service. Sans planificateur, aucun insight
+   n'est jamais ingéré et l'onglet Campaign Intelligence reste vide.
+   Dépannage manuel : `npm run meta:bootstrap` exécute la même synchronisation en ligne de
+   commande et affiche le nombre de lignes par niveau ainsi que l'erreur complète.
 10. Passer `META_TRACKING_ENABLED=true`.
 
 ## Migrations et base de données

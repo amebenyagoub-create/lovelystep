@@ -162,12 +162,16 @@
 .size-guide-visual{position:relative;width:100%;aspect-ratio:4/5;align-self:center;overflow:hidden;border-radius:20px}
 .size-guide-visual img{object-fit:contain}
 
-.consent-banner{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(30,65,106,.1);padding:16px 22px;display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap}
-.consent-banner p{margin:0;font-size:13px;line-height:1.6;color:var(--ink);max-width:720px}
+.consent-banner{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(30,65,106,.1);padding:16px 22px;display:flex;align-items:center;justify-content:center;gap:20px;flex-wrap:wrap;transform:translateY(115%);opacity:0;transition:transform .42s cubic-bezier(.22,1,.36,1),opacity .3s ease}
+.consent-banner[data-shown="true"]{transform:translateY(0);opacity:1}
+.consent-banner p{margin:0;font-size:14px;line-height:1.55;color:var(--ink);max-width:640px;font-weight:600}
 .consent-actions{display:flex;gap:10px;flex-shrink:0}
-.consent-actions button{border-radius:999px;padding:11px 20px;font-size:13px;font-weight:800;border:1px solid var(--line);cursor:pointer}
+.consent-actions button{border-radius:999px;padding:12px 22px;font-size:13px;font-weight:800;border:1px solid var(--line);cursor:pointer;transition:background .18s ease}
 .consent-refuse{background:#fff;color:var(--navy)}
-.consent-accept{background:var(--navy);color:#fff;border-color:var(--navy)}
+.consent-refuse:hover{background:var(--cream)}
+.consent-accept{background:var(--coral);color:#fff;border-color:var(--coral);box-shadow:0 6px 16px rgba(238,85,73,.32)}
+.consent-accept:hover{background:#d94338;border-color:#d94338}
+@media(prefers-reduced-motion:reduce){.consent-banner{transition:none;transform:none;opacity:1}}
 @media(max-width:600px){.consent-banner{padding:14px 16px;gap:12px}.consent-actions{width:100%}.consent-actions button{flex:1}}
 
 /* Mobile storefront polish: compact navigation, clearer commerce cards and
@@ -281,7 +285,7 @@
   .checkout-total span{font-size:13px;line-height:1.25}
   .checkout-total strong{font-size:24px;white-space:nowrap}
   .consent-banner{left:8px;right:8px;bottom:8px;border:1px solid var(--line);border-radius:22px;padding:15px 14px max(14px,env(safe-area-inset-bottom));box-shadow:0 14px 45px rgba(30,65,106,.2)}
-  .consent-banner p{font-size:12px;line-height:1.45}
+  .consent-banner p{font-size:13px;line-height:1.5}
   .consent-actions button{min-height:44px}
 }
 
