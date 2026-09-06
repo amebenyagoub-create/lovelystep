@@ -22,7 +22,7 @@ const nextConfig: NextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://www.facebook.com",
       "font-src 'self' data:",
-      `connect-src 'self' https://www.facebook.com https://connect.facebook.net${development ? " ws: wss:" : ""}`,
+      `connect-src 'self' https://capig.datah04.com https://www.facebook.com https://connect.facebook.net${development ? " ws: wss:" : ""}`,
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
