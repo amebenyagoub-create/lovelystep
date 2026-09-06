@@ -81,6 +81,14 @@ check("purchase event id is deterministic per order", () => {
   assert.notEqual(purchaseEventId("LS-260810-ABCD"), purchaseEventId("LS-260810-ABCE"));
 });
 
+const pixelComponent = await readFile(new URL("../app/meta-pixel.tsx", import.meta.url), "utf8");
+check("Pixel initialization is queued before PageView", () => {
+  assert.ok(!pixelComponent.includes("onReady="), "inline Script onReady runs before the Pixel bootstrap");
+  const init = pixelComponent.indexOf('window.fbq!("init"');
+  const pageView = pixelComponent.indexOf('window.fbq!("track", "PageView"');
+  assert.ok(init >= 0 && pageView > init, "fbq init must precede PageView");
+});
+
 // --- Deduplication against a real database -------------------------------------
 const connectionString = process.env.TEST_DATABASE_URL;
 if (!connectionString) {
