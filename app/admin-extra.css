@@ -234,3 +234,28 @@
   .admin-modal .modal-actions button{flex:1 1 46%;min-height:44px}
   .admin-modal .modal-actions .admin-primary{flex-basis:100%}
 }
+
+/* Delivery by level: campaign totals with its ad sets and ads. Wide by nature, so the table
+   scrolls inside its own container and the name column stays pinned while the metrics move. */
+.campaign-breakdown{border-bottom:1px solid var(--line);padding:20px 24px 22px;background:#fff}
+.campaign-breakdown-head{display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:13px}
+.campaign-breakdown-head h3{margin:0;font-size:15px}
+.campaign-breakdown-head small{color:var(--muted);font-size:11px}
+.breakdown-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+.breakdown-table{width:100%;min-width:940px;border-collapse:collapse;font-size:12px}
+.breakdown-table thead th{position:sticky;top:0;background:#f6f7f9;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;text-align:right;padding:10px 12px;white-space:nowrap}
+.breakdown-table thead th:first-child{text-align:left;left:0;z-index:2}
+.breakdown-table tbody th{position:sticky;left:0;z-index:1;background:#fff;text-align:left;font-weight:800;color:var(--navy);padding:11px 12px;min-width:230px;max-width:300px}
+.breakdown-table tbody th small{display:block;margin-top:3px;color:var(--muted);font-size:10px;font-weight:600;text-transform:capitalize}
+.breakdown-table td{padding:11px 12px;text-align:right;white-space:nowrap;color:var(--navy);font-weight:700;font-variant-numeric:tabular-nums}
+.breakdown-row{border-top:1px solid #edf0f3}
+.breakdown-campaign th,.breakdown-campaign td{background:#fafbfd;font-weight:900}
+.breakdown-campaign th{background:#fafbfd}
+.breakdown-adset th,.breakdown-adset td{background:#fff}
+.breakdown-ad th,.breakdown-ad td{background:#fcfdfe;font-weight:600}
+.breakdown-ad th{color:#506174}
+.breakdown-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;padding:0;font:inherit;font-weight:800;color:var(--navy);text-align:left;cursor:pointer}
+.breakdown-toggle span{color:var(--coral);font-size:10px}
+.breakdown-leaf{display:inline-block}
+.breakdown-scroll .chart-empty{margin:0;padding:16px;text-align:center}
+@media(max-width:650px){.campaign-breakdown{padding:16px 18px 18px}.breakdown-table tbody th{min-width:180px}}

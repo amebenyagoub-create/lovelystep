@@ -1,16 +1,95 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CampaignAnalysis, CampaignDecisionStatus, CampaignIntelligenceResponse } from "@/lib/campaign-intelligence/types";
+import type { BreakdownMetrics, CampaignAnalysis, CampaignBreakdownNode, CampaignDecisionStatus, CampaignIntelligenceResponse } from "@/lib/campaign-intelligence/types";
 
 const isoDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000 + 3_600_000).toISOString().slice(0, 10);
 const money = (minor: number | null) => minor === null || !Number.isFinite(minor) ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(minor / 100);
 const number = (value: number | null, suffix = "", digits = 1) => value === null || !Number.isFinite(value) ? "—" : `${value.toFixed(digits)}${suffix}`;
+const count = (value: number) => value.toLocaleString("en-US");
 const statusOrder: CampaignDecisionStatus[] = ["KILL", "WATCH", "SCALE", "KEEP"];
 const ranges: Array<[string, number]> = [["7 days", 6], ["30 days", 29], ["90 days", 89]];
 
 function Metric({ label, value, note }: { label: string; value: string | number; note?: string }) {
   return <div><dt>{label}</dt><dd>{value}{note && <small>{note}</small>}</dd></div>;
+}
+
+/** The delivery columns, in the order Meta's own reporting lists them. */
+const DELIVERY_COLUMNS: Array<[string, (metrics: BreakdownMetrics) => string]> = [
+  ["Spend", (m) => m.spendConverted ? money(m.spendMinor) : "FX missing"],
+  ["Reach (daily sum)", (m) => count(m.reachDailySum)],
+  ["Impressions", (m) => count(m.impressions)],
+  ["CPM", (m) => money(m.cpmMinor)],
+  ["Clicks (all)", (m) => count(m.clicks)],
+  ["CTR", (m) => number(m.ctrPercent, "%", 2)],
+  ["Link clicks", (m) => count(m.linkClicks)],
+  ["Landing views", (m) => count(m.landingPageViews)],
+  ["Adds to cart", (m) => count(m.addsToCart)],
+  ["Checkouts", (m) => count(m.checkouts)],
+  ["Purchases", (m) => count(m.purchases)],
+];
+
+/** Campaign totals reshaped into the same field set the breakdown rows use. */
+function campaignMetrics(analysis: CampaignAnalysis): BreakdownMetrics {
+  const advertising = analysis.kpis.advertising;
+  return {
+    spendMinor: advertising.spendMinor,
+    spendConverted: analysis.kpis.completeness.spendConverted,
+    impressions: advertising.impressions,
+    reachDailySum: advertising.reach,
+    frequency: advertising.frequency,
+    clicks: advertising.clicks,
+    linkClicks: advertising.linkClicks,
+    ctrPercent: advertising.ctrPercent,
+    cpmMinor: advertising.cpmMinor,
+    cpcMinor: advertising.cpcMinor,
+    landingPageViews: advertising.landingPageViews,
+    addsToCart: advertising.addsToCart,
+    checkouts: advertising.checkouts,
+    purchases: advertising.purchases,
+  };
+}
+
+function BreakdownRow({ node, depth }: { node: CampaignBreakdownNode; depth: number }) {
+  const [open, setOpen] = useState(false);
+  const expandable = node.children.length > 0;
+  return <>
+    <tr className={`breakdown-row breakdown-${node.level}`}>
+      <th scope="row" style={{ paddingInlineStart: `${12 + depth * 18}px` }}>
+        {expandable
+          ? <button type="button" className="breakdown-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <span aria-hidden="true">{open ? "\u25be" : "\u25b8"}</span>{node.name}
+            </button>
+          : <span className="breakdown-leaf">{node.name}</span>}
+        <small>{node.level === "adset" ? `Ad set\u00a0\u00b7 ${node.children.length} ad${node.children.length === 1 ? "" : "s"}` : "Ad"}{node.status ? ` \u00b7 ${node.status.toLowerCase()}` : ""}</small>
+      </th>
+      {DELIVERY_COLUMNS.map(([label, render]) => <td key={label}>{render(node.metrics)}</td>)}
+    </tr>
+    {open && node.children.map((child) => <BreakdownRow key={child.id} node={child} depth={depth + 1} />)}
+  </>;
+}
+
+/**
+ * Campaign totals with its ad sets and ads underneath.
+ *
+ * Delivery metrics only: orders are matched to campaigns by utm_campaign, so no row below the
+ * campaign has COD outcomes, profit or a verdict to show. Add utm_content to the ad URLs to
+ * make per-ad attribution possible later.
+ */
+function BreakdownTable({ analysis }: { analysis: CampaignAnalysis }) {
+  return <div className="breakdown-scroll">
+    <table className="breakdown-table">
+      <thead><tr><th scope="col">Level</th>{DELIVERY_COLUMNS.map(([label]) => <th key={label} scope="col">{label}</th>)}</tr></thead>
+      <tbody>
+        <tr className="breakdown-row breakdown-campaign">
+          <th scope="row"><span className="breakdown-leaf">{analysis.entity.name}</span><small>Campaign total</small></th>
+          {DELIVERY_COLUMNS.map(([label, render]) => <td key={label}>{render(campaignMetrics(analysis))}</td>)}
+        </tr>
+        {analysis.breakdown.map((node) => <BreakdownRow key={node.id} node={node} depth={1} />)}
+      </tbody>
+    </table>
+    {analysis.breakdown.length === 0 && <p className="chart-empty">No ad set or ad rows for this period yet. They arrive with the next insights sync.</p>}
+  </div>;
 }
 
 function Funnel({ analysis }: { analysis: CampaignAnalysis }) {
@@ -53,6 +132,14 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
       <Metric label="Trend" value={trend.direction.replaceAll("_", " ")} note={trend.creativeFatigue.detected ? "creative fatigue detected" : undefined} />
     </div>
 
+    <section className="campaign-breakdown">
+      <div className="campaign-breakdown-head">
+        <h3>Delivery by level</h3>
+        <small>Meta-reported delivery. Expand an ad set to see its ads.</small>
+      </div>
+      <BreakdownTable analysis={analysis} />
+    </section>
+
     <details className="campaign-details">
       <summary>Details and diagnostic evidence</summary>
       <div className="campaign-detail-grid">
@@ -63,6 +150,7 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
           <Metric label="Link clicks" value={kpis.advertising.linkClicks.toLocaleString("en-US")} />
           <Metric label="CTR" value={number(kpis.advertising.ctrPercent, "%")} />
           <Metric label="CPC" value={money(kpis.advertising.cpcMinor)} />
+          <Metric label="CPM" value={money(kpis.advertising.cpmMinor)} />
           <Metric label="Meta CPA" value={money(kpis.advertising.metaCpaMinor)} />
           <Metric label="Meta ROAS" value={number(kpis.advertising.metaRoas, "x", 2)} />
           <Metric label="Delivered store ROAS" value={number(kpis.advertising.storeAttributedRoas, "x", 2)} />

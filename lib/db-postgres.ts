@@ -818,6 +818,17 @@ export type CampaignInsightDailyRecord = {
   syncedAt: string;
 };
 
+/** Ad set and ad rows, carrying their parent ids so the panel can nest them under a campaign. */
+export type BreakdownInsightRecord = CampaignInsightDailyRecord & {
+  level: "adset" | "ad";
+  campaignId: string | null;
+  adsetId: string | null;
+  cpmMinor: number | null;
+  cpcMinor: number | null;
+  ctr: number | null;
+  frequency: number | null;
+};
+
 /** Strongly typed campaign rows used by the deterministic intelligence service. */
 export async function listCampaignInsightRows(since: string, until: string): Promise<CampaignInsightDailyRecord[]> {
   return (await rows(
@@ -843,6 +854,48 @@ export async function listCampaignInsightRows(since: string, until: string): Pro
     addsToCart: Number(row.adds_to_cart ?? 0),
     checkouts: Number(row.checkouts ?? 0),
     purchases: Number(row.purchases ?? 0),
+    syncedAt: timestamp(row.synced_at),
+  }));
+}
+
+/**
+ * Ad set and ad rows for the same window. Kept separate from the campaign query because these
+ * levels never carry COD outcomes: orders match campaigns by utm_campaign, so anything below a
+ * campaign can report delivery metrics only. Rate columns come back raw and are recomputed from
+ * summed totals upstream — averaging Meta's per-day CPM or CTR across a window is wrong.
+ */
+export async function listBreakdownInsightRows(since: string, until: string): Promise<BreakdownInsightRecord[]> {
+  return (await rows(
+    `SELECT date,level,entity_id,entity_name,campaign_id,adset_id,status,objective,currency,spend_minor,purchase_value_minor,
+      impressions,reach,clicks,link_clicks,landing_page_views,adds_to_cart,checkouts,purchases,
+      cpm_minor,cpc_minor,ctr,frequency,synced_at
+     FROM meta_ads_insights_daily WHERE level IN ('adset','ad') AND date BETWEEN $1 AND $2
+     ORDER BY date, spend_minor DESC`,
+    [since, until],
+  )).map((row) => ({
+    date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date).slice(0, 10),
+    level: String(row.level) as "adset" | "ad",
+    entityId: String(row.entity_id),
+    entityName: String(row.entity_name ?? ""),
+    campaignId: row.campaign_id == null ? null : String(row.campaign_id),
+    adsetId: row.adset_id == null ? null : String(row.adset_id),
+    status: row.status == null ? null : String(row.status),
+    objective: row.objective == null ? null : String(row.objective),
+    currency: String(row.currency ?? ""),
+    spendMinor: Number(row.spend_minor ?? 0),
+    purchaseValueMinor: Number(row.purchase_value_minor ?? 0),
+    impressions: Number(row.impressions ?? 0),
+    reach: Number(row.reach ?? 0),
+    clicks: Number(row.clicks ?? 0),
+    linkClicks: Number(row.link_clicks ?? 0),
+    landingPageViews: Number(row.landing_page_views ?? 0),
+    addsToCart: Number(row.adds_to_cart ?? 0),
+    checkouts: Number(row.checkouts ?? 0),
+    purchases: Number(row.purchases ?? 0),
+    cpmMinor: row.cpm_minor == null ? null : Number(row.cpm_minor),
+    cpcMinor: row.cpc_minor == null ? null : Number(row.cpc_minor),
+    ctr: row.ctr == null ? null : Number(row.ctr),
+    frequency: row.frequency == null ? null : Number(row.frequency),
     syncedAt: timestamp(row.synced_at),
   }));
 }

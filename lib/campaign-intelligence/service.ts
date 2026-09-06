@@ -1,7 +1,7 @@
 import "server-only";
 
 import crypto from "node:crypto";
-import { getCampaignAiCache, getCampaignThresholdOverrides, listCampaignInsightRows, listExpenses, listFxRates, listOrdersForPeriod, listSyncState, saveCampaignAiCache, type CampaignInsightDailyRecord } from "../db-postgres";
+import { getCampaignAiCache, getCampaignThresholdOverrides, listBreakdownInsightRows, listCampaignInsightRows, listExpenses, listFxRates, listOrdersForPeriod, listSyncState, saveCampaignAiCache, type BreakdownInsightRecord, type CampaignInsightDailyRecord } from "../db-postgres";
 import { operatingExpensesMinor, reportingDay } from "../finance/kpis";
 import type { Order } from "../types";
 import { validateCampaignNarrative } from "./ai-schema";
@@ -11,7 +11,7 @@ import { campaignAiModel, generateGroqCampaignNarrative } from "./groq";
 import { computeCampaignKpis } from "./kpis";
 import { campaignThresholds } from "./thresholds";
 import { analyzeCampaignTrend, emptyCampaignTrend } from "./trends";
-import type { CampaignAiExplanation, CampaignAnalysis, CampaignDailyMetric, CampaignDecision, CampaignIntelligenceResponse, CampaignKpis, CampaignTrend } from "./types";
+import type { BreakdownMetrics, CampaignAiExplanation, CampaignAnalysis, CampaignBreakdownNode, CampaignDailyMetric, CampaignDecision, CampaignIntelligenceResponse, CampaignKpis, CampaignTrend } from "./types";
 
 const REPORTING_TIMEZONE = "Africa/Algiers" as const;
 const REPORTING_CURRENCY = "DZD" as const;
@@ -149,10 +149,84 @@ async function explain(input: {
   }
 }
 
+/**
+ * Folds a set of daily rows for one entity into window totals.
+ *
+ * Rates are derived from the totals rather than averaged: the mean of daily CPMs is not the
+ * CPM of the window, and a day with no spend would drag any average toward zero. Spend is
+ * marked unconverted if any day in the window lacked an FX rate, so the UI can show the gap
+ * instead of a total that silently omits days.
+ */
+function foldBreakdownMetrics(rowsForEntity: BreakdownInsightRecord[], rates: Map<string, number>): BreakdownMetrics {
+  let spendMinor = 0;
+  let spendConverted = true;
+  for (const row of rowsForEntity) {
+    const converted = convertMinor(row, row.spendMinor, rates);
+    if (converted === null) spendConverted = false; else spendMinor += converted;
+  }
+  const total = (pick: (row: BreakdownInsightRecord) => number) => rowsForEntity.reduce((sum, row) => sum + pick(row), 0);
+  const impressions = total((row) => row.impressions);
+  const clicks = total((row) => row.clicks);
+  const reachDailySum = total((row) => row.reach);
+  const resolvedSpend = spendConverted ? spendMinor : null;
+  return {
+    spendMinor: resolvedSpend,
+    spendConverted,
+    impressions,
+    reachDailySum,
+    frequency: reachDailySum > 0 ? impressions / reachDailySum : null,
+    clicks,
+    linkClicks: total((row) => row.linkClicks),
+    ctrPercent: impressions > 0 ? (clicks / impressions) * 100 : null,
+    cpmMinor: resolvedSpend !== null && impressions > 0 ? Math.round((resolvedSpend / impressions) * 1000) : null,
+    cpcMinor: resolvedSpend !== null && clicks > 0 ? Math.round(resolvedSpend / clicks) : null,
+    landingPageViews: total((row) => row.landingPageViews),
+    addsToCart: total((row) => row.addsToCart),
+    checkouts: total((row) => row.checkouts),
+    purchases: total((row) => row.purchases),
+  };
+}
+
+/** Groups this campaign's ad sets, each with its own ads, ordered by spend. */
+function buildBreakdown(campaignId: string, breakdownRows: BreakdownInsightRecord[], rates: Map<string, number>): CampaignBreakdownNode[] {
+  const mine = breakdownRows.filter((row) => row.campaignId === campaignId);
+  if (!mine.length) return [];
+
+  const byEntity = new Map<string, BreakdownInsightRecord[]>();
+  for (const row of mine) byEntity.set(row.entityId, [...(byEntity.get(row.entityId) ?? []), row]);
+
+  const node = (entityId: string, level: "adset" | "ad"): CampaignBreakdownNode => {
+    const entityRows = byEntity.get(entityId) ?? [];
+    return {
+      level,
+      id: entityId,
+      name: entityRows[0]?.entityName || entityId,
+      status: entityRows.at(-1)?.status ?? null,
+      metrics: foldBreakdownMetrics(entityRows, rates),
+      children: [],
+    };
+  };
+
+  const bySpend = (left: CampaignBreakdownNode, right: CampaignBreakdownNode) => (right.metrics.spendMinor ?? 0) - (left.metrics.spendMinor ?? 0);
+  const adsetIds = [...new Set(mine.filter((row) => row.level === "adset").map((row) => row.entityId))];
+  const adRows = mine.filter((row) => row.level === "ad");
+
+  const adsets = adsetIds.map((adsetId) => {
+    const childIds = [...new Set(adRows.filter((row) => row.adsetId === adsetId).map((row) => row.entityId))];
+    return { ...node(adsetId, "adset"), children: childIds.map((adId) => node(adId, "ad")).sort(bySpend) };
+  }).sort(bySpend);
+
+  // Ads whose parent ad set has no row of its own would otherwise vanish from the tree.
+  const claimed = new Set(adsets.flatMap((adset) => adset.children.map((child) => child.id)));
+  const orphans = [...new Set(adRows.map((row) => row.entityId))].filter((adId) => !claimed.has(adId)).map((adId) => node(adId, "ad")).sort(bySpend);
+  return [...adsets, ...orphans];
+}
+
 export async function getCampaignIntelligence(since: string, until: string): Promise<CampaignIntelligenceResponse> {
-  const [{ period: periodOrders, prior: allPriorOrders }, insightRows, expenses, syncState, thresholdOverrides] = await Promise.all([
+  const [{ period: periodOrders, prior: allPriorOrders }, insightRows, breakdownRows, expenses, syncState, thresholdOverrides] = await Promise.all([
     listOrdersForPeriod(since, until),
     listCampaignInsightRows(since, until),
+    listBreakdownInsightRows(since, until),
     listExpenses(),
     listSyncState(),
     getCampaignThresholdOverrides(),
@@ -162,7 +236,7 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
   const priorOrders = allPriorOrders.filter((order) => reportingDay(order.createdAt) >= oldestHistoryDate);
   const globalRates = historicalRates(priorOrders);
   const globalEconomics = historicalEconomics(priorOrders);
-  const currencies = [...new Set(insightRows.map((row) => row.currency.toUpperCase()).filter((currency) => currency && currency !== "DZD"))];
+  const currencies = [...new Set([...insightRows, ...breakdownRows].map((row) => row.currency.toUpperCase()).filter((currency) => currency && currency !== "DZD"))];
   const fxRates = await listFxRates(currencies);
   const rates = new Map(fxRates.map((rate) => [`${rate.rateDate}|${rate.currency.toUpperCase()}`, rate.dzdPerUnit]));
 
@@ -214,6 +288,7 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
       kpis,
       trend,
       decision,
+      breakdown: buildBreakdown(entityId, breakdownRows, rates),
     });
   }
 

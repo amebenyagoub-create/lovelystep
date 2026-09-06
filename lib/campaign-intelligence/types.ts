@@ -157,6 +157,44 @@ export type CampaignAiExplanation = {
   cached: boolean;
 };
 
+/**
+ * Delivery metrics for one ad set or ad.
+ *
+ * Rates are recomputed from the summed totals of the window, never averaged from Meta's daily
+ * rate columns: the mean of seven daily CPMs is not the CPM of the week.
+ *
+ * There is deliberately no COD, economics or decision field here. Orders are matched to
+ * campaigns by utm_campaign, so nothing below a campaign has outcomes to report yet, and an
+ * invented per-ad profit would be worse than an absent one.
+ */
+export type BreakdownMetrics = {
+  spendMinor: number | null;
+  /** false when a day in the window had no FX rate, so the spend total is incomplete. */
+  spendConverted: boolean;
+  impressions: number;
+  /** Sum of daily reach, not deduplicated reach for the window. */
+  reachDailySum: number;
+  frequency: number | null;
+  clicks: number;
+  linkClicks: number;
+  ctrPercent: number | null;
+  cpmMinor: number | null;
+  cpcMinor: number | null;
+  landingPageViews: number;
+  addsToCart: number;
+  checkouts: number;
+  purchases: number;
+};
+
+export type CampaignBreakdownNode = {
+  level: "adset" | "ad";
+  id: string;
+  name: string;
+  status: string | null;
+  metrics: BreakdownMetrics;
+  children: CampaignBreakdownNode[];
+};
+
 export type CampaignAnalysis = {
   entity: {
     level: "campaign";
@@ -171,6 +209,8 @@ export type CampaignAnalysis = {
   trend: CampaignTrend;
   decision: CampaignDecision;
   explanation: CampaignAiExplanation;
+  /** Ad sets, each with its ads. Delivery metrics only — see BreakdownMetrics. */
+  breakdown: CampaignBreakdownNode[];
 };
 
 export type CampaignIntelligenceResponse = {

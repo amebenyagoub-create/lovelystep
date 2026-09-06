@@ -73,6 +73,14 @@ désactivé depuis l'onglet Meta.
    Dépannage manuel : `npm run meta:bootstrap` exécute la même synchronisation en ligne de
    commande et affiche le nombre de lignes par niveau ainsi que l'erreur complète.
 10. Passer `META_TRACKING_ENABLED=true`.
+11. Renseigner les **paramètres d'URL au niveau de chaque publicité** dans Ads Manager :
+    `utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.name}}&utm_term={{adset.name}}&utm_content={{ad.name}}`
+    `utm_campaign` est déjà ce qui rattache une commande à une campagne. `utm_content` et
+    `utm_term` sont capturés et stockés depuis toujours (`meta_attribution`), mais restent
+    vides tant que les URL ne les portent pas : sans eux, aucune attribution COD par
+    publicité n'est possible, seulement les métriques de diffusion remontées par Meta.
+    Le nom de campagne Meta doit rester identique au `utm_campaign` normalisé, sinon la
+    commande tombe dans « non rattachées ».
 
 ## Migrations et base de données
 
