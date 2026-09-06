@@ -17,10 +17,15 @@ export async function POST(request: Request) {
     const wilaya = findWilaya(String(rate.wilayaCode ?? ""));
     const homeCents = Number(rate.homeCents);
     const officeCents = Number(rate.officeCents);
-    if (!wilaya || !Number.isInteger(homeCents) || !Number.isInteger(officeCents) || homeCents < 0 || officeCents < 0 || homeCents > 10_000_000 || officeCents > 10_000_000) {
+    // Carrier costs and the return fee are expenses, validated on the same terms as the prices.
+    const carrierHomeCents = Number(rate.carrierHomeCents ?? 0);
+    const carrierOfficeCents = Number(rate.carrierOfficeCents ?? 0);
+    const returnCostCents = Number(rate.returnCostCents ?? 0);
+    const amounts = [homeCents, officeCents, carrierHomeCents, carrierOfficeCents, returnCostCents];
+    if (!wilaya || amounts.some((amount) => !Number.isInteger(amount) || amount < 0 || amount > 10_000_000)) {
       return NextResponse.json({ error: "Un tarif de livraison est invalide." }, { status: 400 });
     }
-    rates.push({ wilayaCode: wilaya.code, wilayaNameFr: wilaya.nameFr, wilayaNameAr: wilaya.nameAr, homeCents, officeCents, active: rate.active !== false });
+    rates.push({ wilayaCode: wilaya.code, wilayaNameFr: wilaya.nameFr, wilayaNameAr: wilaya.nameAr, homeCents, officeCents, carrierHomeCents, carrierOfficeCents, returnCostCents, active: rate.active !== false });
   }
   const saved = await saveDeliveryRates(rates);
   revalidateTag(CATALOG_TAG, { expire: 0 });

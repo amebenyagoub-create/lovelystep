@@ -178,6 +178,9 @@ function DeliveryEditor({ rates, zrExpress, busy, onSyncZrExpress, onSaveRates }
   const [search, setSearch] = useState("");
   const filtered = values.filter((rate) => `${rate.wilayaCode} ${rate.wilayaNameFr} ${rate.wilayaNameAr}`.toLocaleLowerCase("fr").includes(search.toLocaleLowerCase("fr")));
   function update(code: string, patch: Partial<DeliveryRate>) { setValues((current) => current.map((rate) => rate.wilayaCode === code ? { ...rate, ...patch } : rate)); }
+  function fillAll(patch: Partial<DeliveryRate>) { setValues((current) => current.map((rate) => ({ ...rate, ...patch }))); }
+  const [bulk, setBulk] = useState({ home: "", office: "", ret: "150" });
+  const toMinor = (value: string) => Math.round(Math.max(0, Number(value) || 0) * 100);
   return <div className="delivery-admin-layout">
     <form className="admin-card" onSubmit={(event) => { event.preventDefault(); void onSaveRates(values); }}>
       <div className="zr-sync-card">
@@ -190,11 +193,22 @@ function DeliveryEditor({ rates, zrExpress, busy, onSyncZrExpress, onSaveRates }
         </div>
         <button type="button" className="admin-primary" disabled={busy || !zrExpress.ready} onClick={() => void onSyncZrExpress().then((syncedRates) => { if (syncedRates) setValues(syncedRates); })}>{busy ? "Synchronisation…" : "Synchroniser ZR Express"}</button>
       </div>
-      <div className="card-title"><div><h2>Tarifs par wilaya</h2><p>Montants en DZD, séparés pour domicile et bureau. Vous pouvez toujours les corriger manuellement.</p></div><button className="admin-primary" disabled={busy}>Enregistrer les tarifs</button></div>
+      <div className="card-title"><div><h2>Tarifs par wilaya</h2><p><b>Prix</b> = ce que paie le client (recette). <b>Coût</b> = ce que ZR Express vous facture (dépense). <b>Retour</b> = facturé sur un colis refusé ou retourné. Sans les coûts, le manager de campagnes ne peut calculer aucun bénéfice.</p></div><button className="admin-primary" disabled={busy}>Enregistrer les tarifs</button></div>
+      <div className="delivery-bulk-fill">
+        <span>Appliquer à toutes les wilayas :</span>
+        <label>Coût domicile<input type="number" min="0" step="1" value={bulk.home} onChange={(event) => setBulk({ ...bulk, home: event.target.value })} /></label>
+        <label>Coût bureau<input type="number" min="0" step="1" value={bulk.office} onChange={(event) => setBulk({ ...bulk, office: event.target.value })} /></label>
+        <label>Retour<input type="number" min="0" step="1" value={bulk.ret} onChange={(event) => setBulk({ ...bulk, ret: event.target.value })} /></label>
+        <button type="button" className="secondary-button" onClick={() => fillAll({
+          ...(bulk.home === "" ? {} : { carrierHomeCents: toMinor(bulk.home) }),
+          ...(bulk.office === "" ? {} : { carrierOfficeCents: toMinor(bulk.office) }),
+          ...(bulk.ret === "" ? {} : { returnCostCents: toMinor(bulk.ret) }),
+        })}>Remplir</button>
+      </div>
       <input className="admin-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher une wilaya…" />
       <div className="delivery-rate-table">
-        <div className="delivery-rate-row head"><span>Wilaya</span><span>Domicile</span><span>Bureau</span><span>Active</span></div>
-        {filtered.map((rate) => <div className="delivery-rate-row" key={rate.wilayaCode}><strong>{rate.wilayaCode} · {rate.wilayaNameFr}<small>{rate.wilayaNameAr}</small></strong><label><input aria-label={`Domicile ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.homeCents / 100} onChange={(event) => update(rate.wilayaCode, { homeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><label><input aria-label={`Bureau ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.officeCents / 100} onChange={(event) => update(rate.wilayaCode, { officeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><input aria-label={`Activer ${rate.wilayaNameFr}`} type="checkbox" checked={rate.active} onChange={(event) => update(rate.wilayaCode, { active: event.target.checked })} /></div>)}
+        <div className="delivery-rate-row head"><span>Wilaya</span><span>Prix domicile</span><span>Prix bureau</span><span>Coût domicile</span><span>Coût bureau</span><span>Retour</span><span>Active</span></div>
+        {filtered.map((rate) => <div className="delivery-rate-row" key={rate.wilayaCode}><strong>{rate.wilayaCode} · {rate.wilayaNameFr}<small>{rate.wilayaNameAr}</small></strong><label><input aria-label={`Domicile ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.homeCents / 100} onChange={(event) => update(rate.wilayaCode, { homeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><label><input aria-label={`Bureau ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.officeCents / 100} onChange={(event) => update(rate.wilayaCode, { officeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><label><input aria-label={`Cout domicile ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.carrierHomeCents / 100} onChange={(event) => update(rate.wilayaCode, { carrierHomeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><label><input aria-label={`Cout bureau ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.carrierOfficeCents / 100} onChange={(event) => update(rate.wilayaCode, { carrierOfficeCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><label><input aria-label={`Retour ${rate.wilayaNameFr}`} type="number" min="0" step="1" value={rate.returnCostCents / 100} onChange={(event) => update(rate.wilayaCode, { returnCostCents: Math.round(Math.max(0, Number(event.target.value) || 0) * 100) })} /> DZD</label><input aria-label={`Activer ${rate.wilayaNameFr}`} type="checkbox" checked={rate.active} onChange={(event) => update(rate.wilayaCode, { active: event.target.checked })} /></div>)}
       </div>
     </form>
     <article className="admin-card delivery-connector">

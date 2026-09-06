@@ -245,8 +245,14 @@ export type DeliveryRate = {
   wilayaCode: string;
   wilayaNameFr: string;
   wilayaNameAr: string;
+  /** Charged to the customer — revenue. */
   homeCents: number;
   officeCents: number;
+  /** Charged to us by the carrier — expense. */
+  carrierHomeCents: number;
+  carrierOfficeCents: number;
+  /** Billed on a refused or returned parcel. */
+  returnCostCents: number;
   active: boolean;
 };
 

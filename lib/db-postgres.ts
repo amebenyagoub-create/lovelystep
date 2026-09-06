@@ -284,7 +284,7 @@ export async function updateDeliverySync(id:number,patch:{status:Order["delivery
 export type DeliveryDispatchClaim={status:"claimed";order:Order}|{status:"not_found"}|{status:"not_confirmed"}|{status:"pending"}|{status:"already_sent"};
 export async function claimOrderForDelivery(id:number):Promise<DeliveryDispatchClaim>{await ensureDatabase();const claimed=await pool.query("UPDATE orders SET delivery_sync_status='pending',delivery_sync_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('confirmed','preparing') AND delivery_external_id IS NULL AND delivery_sync_status IN ('not_configured','failed') RETURNING *",[id]);if(claimed.rows[0])return{status:"claimed",order:mapOrder(claimed.rows[0])};const existing=await rows("SELECT status,delivery_sync_status,delivery_external_id FROM orders WHERE id=$1",[id]);if(!existing[0])return{status:"not_found"};if(existing[0].delivery_external_id||existing[0].delivery_sync_status==="sent")return{status:"already_sent"};if(existing[0].delivery_sync_status==="pending")return{status:"pending"};return{status:"not_confirmed"};}
 const releasing=new Set<OrderStatus>(["refused","returned","cancelled"]);
-export async function updateOrderStatus(id:number,status:OrderStatus,adminId:number|null=null,reasonCode:string|null=null,note:string|null=null):Promise<"updated"|"not_found"|"stock_unavailable">{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");const result=await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE",[id]);if(!result.rows[0]){await client.query("ROLLBACK");return "not_found";}const order=mapOrder(result.rows[0]);const reserved=Boolean(result.rows[0].stock_reserved);const shouldReserve=!releasing.has(status);if(reserved&&!shouldReserve)await changeStock(client,order.items,1);if(!reserved&&shouldReserve)await changeStock(client,order.items,-1);await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3",[status,shouldReserve,id]);if(order.status!==status)await client.query("INSERT INTO order_status_history (order_id,status,changed_by_admin_id,reason_code,note) VALUES ($1,$2,$3,$4,$5)",[id,status,adminId,reasonCode,note]);await client.query("COMMIT");return "updated";}catch(error){await client.query("ROLLBACK");if(error instanceof StockUnavailableError)return "stock_unavailable";throw error;}finally{client.release();}}
+export async function updateOrderStatus(id:number,status:OrderStatus,adminId:number|null=null,reasonCode:string|null=null,note:string|null=null):Promise<"updated"|"not_found"|"stock_unavailable">{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");const result=await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE",[id]);if(!result.rows[0]){await client.query("ROLLBACK");return "not_found";}const order=mapOrder(result.rows[0]);const reserved=Boolean(result.rows[0].stock_reserved);const shouldReserve=!releasing.has(status);if(reserved&&!shouldReserve)await changeStock(client,order.items,1);if(!reserved&&shouldReserve)await changeStock(client,order.items,-1);await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3",[status,shouldReserve,id]);if(order.status!==status)await client.query("INSERT INTO order_status_history (order_id,status,changed_by_admin_id,reason_code,note) VALUES ($1,$2,$3,$4,$5)",[id,status,adminId,reasonCode,note]);await client.query("COMMIT");await syncOrderDeliveryCost(id);return "updated";}catch(error){await client.query("ROLLBACK");if(error instanceof StockUnavailableError)return "stock_unavailable";throw error;}finally{client.release();}}
 
 export type DeleteOrderResult = { status: "deleted"; order: Order } | { status: "not_found" } | { status: "delivery_in_progress" };
 export async function deleteOrder(id: number): Promise<DeleteOrderResult> {
@@ -467,9 +467,9 @@ export const DEFAULT_STORE_SETTINGS:StoreSettings={announcement:{fr:"Paiement à
 function mergeSettings(value:Partial<StoreSettings>|null):StoreSettings{if(!value)return DEFAULT_STORE_SETTINGS;const localized=(key:keyof Pick<StoreSettings,"announcement"|"heroEyebrow"|"heroTitle"|"heroAccent"|"heroDescription"|"primaryCta"|"storyTitle"|"storyDescription">)=>({...DEFAULT_STORE_SETTINGS[key],...(value[key]??{})});return{announcement:localized("announcement"),heroEyebrow:localized("heroEyebrow"),heroTitle:localized("heroTitle"),heroAccent:localized("heroAccent"),heroDescription:localized("heroDescription"),primaryCta:localized("primaryCta"),storyTitle:localized("storyTitle"),storyDescription:localized("storyDescription"),heroImage:value.heroImage??null,theme:{...DEFAULT_STORE_SETTINGS.theme,...(value.theme??{})}};}
 export async function getStoreSettings():Promise<StoreSettings>{const result=await rows("SELECT value_json FROM app_settings WHERE setting_key='storefront'");return mergeSettings(result[0]?parseJson<Partial<StoreSettings>>(result[0].value_json,{}):null);}
 export async function saveStoreSettings(settings:StoreSettings):Promise<StoreSettings>{await ensureDatabase();await pool.query("INSERT INTO app_settings (setting_key,value_json) VALUES ('storefront',$1::jsonb) ON CONFLICT(setting_key) DO UPDATE SET value_json=EXCLUDED.value_json,updated_at=NOW()",[JSON.stringify(settings)]);return getStoreSettings();}
-export async function listDeliveryRates():Promise<DeliveryRate[]>{return(await rows("SELECT * FROM delivery_rates ORDER BY wilaya_code::integer")).map((row)=>({wilayaCode:String(row.wilaya_code),wilayaNameFr:String(row.wilaya_name_fr),wilayaNameAr:String(row.wilaya_name_ar??""),homeCents:Number(row.home_cents),officeCents:Number(row.office_cents),active:Boolean(row.active)}));}
-export async function getDeliveryRate(code:string):Promise<DeliveryRate|null>{const result=await rows("SELECT * FROM delivery_rates WHERE wilaya_code=$1",[code.padStart(2,"0")]);const row=result[0];return row?{wilayaCode:String(row.wilaya_code),wilayaNameFr:String(row.wilaya_name_fr),wilayaNameAr:String(row.wilaya_name_ar??""),homeCents:Number(row.home_cents),officeCents:Number(row.office_cents),active:Boolean(row.active)}:null;}
-export async function saveDeliveryRates(rates:DeliveryRate[]):Promise<DeliveryRate[]>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");for(const rate of rates)await client.query("UPDATE delivery_rates SET home_cents=$1,office_cents=$2,active=$3,updated_at=NOW() WHERE wilaya_code=$4",[rate.homeCents,rate.officeCents,rate.active,rate.wilayaCode]);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}return listDeliveryRates();}
+export async function listDeliveryRates():Promise<DeliveryRate[]>{return(await rows("SELECT * FROM delivery_rates ORDER BY wilaya_code::integer")).map((row)=>({wilayaCode:String(row.wilaya_code),wilayaNameFr:String(row.wilaya_name_fr),wilayaNameAr:String(row.wilaya_name_ar??""),homeCents:Number(row.home_cents),officeCents:Number(row.office_cents),carrierHomeCents:Number(row.carrier_home_cents??0),carrierOfficeCents:Number(row.carrier_office_cents??0),returnCostCents:Number(row.return_cost_cents??0),active:Boolean(row.active)}));}
+export async function getDeliveryRate(code:string):Promise<DeliveryRate|null>{const result=await rows("SELECT * FROM delivery_rates WHERE wilaya_code=$1",[code.padStart(2,"0")]);const row=result[0];return row?{wilayaCode:String(row.wilaya_code),wilayaNameFr:String(row.wilaya_name_fr),wilayaNameAr:String(row.wilaya_name_ar??""),homeCents:Number(row.home_cents),officeCents:Number(row.office_cents),carrierHomeCents:Number(row.carrier_home_cents??0),carrierOfficeCents:Number(row.carrier_office_cents??0),returnCostCents:Number(row.return_cost_cents??0),active:Boolean(row.active)}:null;}
+export async function saveDeliveryRates(rates:DeliveryRate[]):Promise<DeliveryRate[]>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");for(const rate of rates)await client.query("UPDATE delivery_rates SET home_cents=$1,office_cents=$2,carrier_home_cents=$3,carrier_office_cents=$4,return_cost_cents=$5,active=$6,updated_at=NOW() WHERE wilaya_code=$7",[rate.homeCents,rate.officeCents,rate.carrierHomeCents,rate.carrierOfficeCents,rate.returnCostCents,rate.active,rate.wilayaCode]);await client.query("COMMIT");}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}return listDeliveryRates();}
 export const DEFAULT_DELIVERY_INTEGRATION:DeliveryIntegration={enabled:false,providerName:"",baseUrl:"",createShipmentPath:"/shipments",apiTokenEnv:"DELIVERY_API_TOKEN"};
 export async function getDeliveryIntegration():Promise<DeliveryIntegration>{const result=await rows("SELECT value_json FROM app_settings WHERE setting_key='delivery_integration'");return{...DEFAULT_DELIVERY_INTEGRATION,...(result[0]?parseJson<Partial<DeliveryIntegration>>(result[0].value_json,{}):{})};}
 export async function saveDeliveryIntegration(value:DeliveryIntegration):Promise<DeliveryIntegration>{await ensureDatabase();await pool.query("INSERT INTO app_settings (setting_key,value_json) VALUES ('delivery_integration',$1::jsonb) ON CONFLICT(setting_key) DO UPDATE SET value_json=EXCLUDED.value_json,updated_at=NOW()",[JSON.stringify(value)]);return getDeliveryIntegration();}
@@ -1231,4 +1231,44 @@ export async function upsertOrderDeliveryCost(orderId: number, carrierCostCents:
     [orderId, carrierCostCents, returnCostCents, source],
   );
   return mapDeliveryCost(result.rows[0]);
+}
+
+/**
+ * Derives an order's carrier and return cost from its wilaya and delivery type.
+ *
+ * Two rules make the number honest rather than merely present:
+ *  - the carrier is only paid once a parcel is actually dispatched, so nothing is charged to an
+ *    order that never reached "shipped" (a cancelled order costs nothing);
+ *  - the return leg is charged only when the parcel comes back — refused or returned. Applying
+ *    it to a delivered order would understate profit on every successful sale.
+ *
+ * A row an admin entered by hand (source 'manual') is never overwritten.
+ * Never throws: a costing failure must not block an order status change.
+ */
+export async function syncOrderDeliveryCost(orderId: number): Promise<void> {
+  try {
+    const found = await rows(
+      `SELECT o.status, o.delivery_type,
+              EXISTS(SELECT 1 FROM order_status_history h WHERE h.order_id=o.id AND h.status='shipped') AS was_shipped,
+              r.carrier_home_cents, r.carrier_office_cents, r.return_cost_cents
+       FROM orders o LEFT JOIN delivery_rates r ON r.wilaya_code = o.wilaya_code
+       WHERE o.id = $1`, [orderId]);
+    const row = found[0];
+    if (!row || row.carrier_home_cents == null) return; // no rate configured for that wilaya yet
+
+    const status = String(row.status);
+    const dispatched = Boolean(row.was_shipped) || ["shipped", "delivered", "refused", "returned"].includes(status);
+    const carrier = !dispatched ? 0
+      : Number(String(row.delivery_type) === "office" ? row.carrier_office_cents : row.carrier_home_cents);
+    const returned = ["refused", "returned"].includes(status) ? Number(row.return_cost_cents ?? 0) : 0;
+
+    await pool.query(
+      `INSERT INTO order_delivery_costs (order_id,carrier_cost_cents,return_cost_cents,source) VALUES ($1,$2,$3,'auto')
+       ON CONFLICT (order_id) DO UPDATE SET carrier_cost_cents=EXCLUDED.carrier_cost_cents,
+         return_cost_cents=EXCLUDED.return_cost_cents, updated_at=NOW()
+       WHERE order_delivery_costs.source <> 'manual'`,
+      [orderId, carrier, returned]);
+  } catch {
+    // Costing is reporting, never a blocker on the order itself.
+  }
 }

@@ -368,6 +368,15 @@ CREATE TABLE IF NOT EXISTS meta_product_page_posts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- What ZR Express charges US, kept beside what we charge the customer. home_cents and
+-- office_cents are revenue (the delivery fee on the order); these two are the expense. Keeping
+-- both on the same row is what makes per-order profit computable without a second lookup table.
+ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS carrier_home_cents BIGINT NOT NULL DEFAULT 0 CHECK(carrier_home_cents >= 0);
+ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS carrier_office_cents BIGINT NOT NULL DEFAULT 0 CHECK(carrier_office_cents >= 0);
+-- The return leg is billed on refused and returned parcels. Flat 15000 minor units (150 DZD)
+-- across every wilaya and both delivery types; per-wilaya so it stays changeable if that ends.
+ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS return_cost_cents BIGINT NOT NULL DEFAULT 15000 CHECK(return_cost_cents >= 0);
+
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;
 
 -- Durable outbox for the Google Sheet export. The agent only sees an order once
