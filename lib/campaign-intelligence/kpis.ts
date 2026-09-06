@@ -87,13 +87,33 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   const actualNetProfitMinor = contributionBeforeAdsMinor === null || spendMinor === null ? null : contributionBeforeAdsMinor - spendMinor;
 
   const knownCarrierCosts = orders.flatMap((order) => order.deliveryCost ? [order.deliveryCost.carrierCostCents] : []);
-  const averageCarrierCost = knownCarrierCosts.length ? Math.round(sum(knownCarrierCosts) / knownCarrierCosts.length) : 0;
+  /**
+   * What the carrier costs on an order that has no recorded cost yet.
+   *
+   * The delivery fee is passed straight to ZR, so an order owes exactly the fee it charged.
+   * This previously fell back to the average of known carrier costs — which is 0 before any
+   * order ships — and `subtotal + shipping - cogs - 0` turned the pass-through fee into profit.
+   * On a 2,750 DZD margin with an ~875 DZD fee that inflated break-even to ~3,625 and handed
+   * back a target CPA 70% too generous, which is the direction that loses money quietly.
+   *
+   * Same rule as syncOrderDeliveryCost in lib/db-postgres.ts: fee in, fee out, margin remains.
+   *
+   * A recorded 0 is treated as "not billed yet", not "free": syncOrderDeliveryCost legitimately
+   * writes 0 for an order that has not shipped, and every use of this value below is a forward
+   * projection of what a DELIVERED order will cost. Reading that 0 literally would put the fee
+   * back into profit the moment the costs table was populated. A refused or returned parcel is
+   * handled separately above, where the send leg genuinely is not charged.
+   */
+  const carrierCostOf = (order: Order): number => {
+    const recorded = order.deliveryCost?.carrierCostCents;
+    return recorded != null && recorded > 0 ? recorded : order.shippingCents;
+  };
   let expectedContribution = -allocatedVariableCostsMinor;
   for (const order of orders) {
     const cogs = orderCogs(order);
     if (order.status === "delivered") {
       expectedContribution += order.subtotalCents + order.shippingCents - sum(order.refunds.map((refund) => refund.amountCents)) - (cogs ?? 0)
-        - (order.deliveryCost?.carrierCostCents ?? 0) - (order.deliveryCost?.returnCostCents ?? 0);
+        - carrierCostOf(order) - (order.deliveryCost?.returnCostCents ?? 0);
       continue;
     }
     if (["returned", "refused", "cancelled"].includes(order.status)) {
@@ -101,7 +121,7 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
       continue;
     }
     const outcomeProbability = was(order, "confirmed") ? deliveryProbability : confirmationProbability * deliveryProbability;
-    expectedContribution += outcomeProbability * (order.subtotalCents + order.shippingCents - (cogs ?? 0) - (order.deliveryCost?.carrierCostCents ?? averageCarrierCost));
+    expectedContribution += outcomeProbability * (order.subtotalCents + order.shippingCents - (cogs ?? 0) - carrierCostOf(order));
   }
   const expectedNetProfitMinor = costDataComplete && spendMinor !== null ? Math.round(expectedContribution - spendMinor) : null;
   const outcomesIncomplete = pending > 0 || deliveryOutcomes < confirmedOrders.length;
@@ -112,7 +132,7 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   const fallbackContributionPerOrder = (() => {
     const completeOrders = orders.filter((order) => orderCogs(order) !== null);
     if (!completeOrders.length) return null;
-    return Math.round(sum(completeOrders.map((order) => order.subtotalCents + order.shippingCents - (orderCogs(order) ?? 0) - averageCarrierCost)) / completeOrders.length);
+    return Math.round(sum(completeOrders.map((order) => order.subtotalCents + order.shippingCents - (orderCogs(order) ?? 0) - carrierCostOf(order))) / completeOrders.length);
   })();
   const breakEvenDeliveredCpaMinor = contributionPerDelivered ?? fallbackContributionPerOrder ?? input.baselineContributionPerDeliveredOrderMinor ?? null;
   const targetDeliveredCpaMinor = breakEvenDeliveredCpaMinor === null ? null : Math.max(0, breakEvenDeliveredCpaMinor - thresholds.targetNetProfitPerDeliveredOrderMinor);
