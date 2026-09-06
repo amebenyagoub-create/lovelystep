@@ -19,6 +19,7 @@
     "test:store-features": "node scripts/test-store-features.mjs",
     "test:finance": "node --env-file=.env.local scripts/test-financial-foundation.mjs",
     "test:meta": "node --env-file=.env.local scripts/test-meta-tracking.mjs",
+    "test:meta-funnel": "node --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-meta-funnel-capi.mjs",
     "test:meta-ads": "node --env-file=.env.local scripts/test-meta-ads-catalog.mjs",
     "test:kpis": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-finance-kpis.mjs",
     "test:attribution": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-attribution.mjs",

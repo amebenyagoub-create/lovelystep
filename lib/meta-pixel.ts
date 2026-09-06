@@ -1,6 +1,8 @@
 import { marketingAllowed, readConsentCookie } from "./meta/consent";
 import { cleanCustomData, randomEventId, type MetaCustomData, type MetaStandardEvent } from "./meta/events";
 
+const CAPI_FUNNEL_EVENTS = new Set<MetaStandardEvent>(["ViewContent", "AddToCart", "InitiateCheckout"]);
+
 declare global {
   interface Window {
     fbq?: (...args: unknown[]) => void;
@@ -35,6 +37,14 @@ export function trackMeta(eventName: MetaStandardEvent, parameters: MetaCustomDa
     window.fbq("track", pendingEvent.eventName, pendingEvent.parameters, { eventID: pendingEvent.eventId });
   } catch {
     // A tracking failure must never break the surrounding user action.
+  }
+  if (CAPI_FUNNEL_EVENTS.has(pendingEvent.eventName)) {
+    void fetch("/api/meta/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventName: pendingEvent.eventName, eventId: pendingEvent.eventId, customData: pendingEvent.parameters }),
+      keepalive: true,
+    }).catch(() => undefined);
   }
 }
 
