@@ -259,3 +259,9 @@
 .breakdown-leaf{display:inline-block}
 .breakdown-scroll .chart-empty{margin:0;padding:16px;text-align:center}
 @media(max-width:650px){.campaign-breakdown{padding:16px 18px 18px}.breakdown-table tbody th{min-width:180px}}
+
+/* Opt-out control on the privacy page: the only consent surface left now that the
+   blocking banner is gone, so it has to be findable and obviously a button. */
+.legal-optout{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:18px 0 0}
+.legal-optout button{border-radius:999px;padding:12px 22px;font-size:13px;font-weight:800;cursor:pointer}
+.legal-optout small{color:var(--muted);font-size:12px}

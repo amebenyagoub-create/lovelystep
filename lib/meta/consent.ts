@@ -1,5 +1,10 @@
 // Marketing consent state. Read by the Pixel (browser) and by the CAPI route handlers (server).
-// A missing cookie means "not yet decided" and must be treated as NOT granted.
+//
+// Measurement is ON by default: a missing cookie means the visitor has not opted out, so the
+// Pixel, the CAPI and store attribution all run. Only an explicit "denied" turns them off.
+// That single rule is what every other module reads, so the opt-out path stays intact across
+// trackMeta, metaRequestContext, sendPurchaseEvent and AttributionTracker without any of them
+// knowing the default changed. Visitors opt out from the privacy page.
 
 export const CONSENT_COOKIE = "lovelystep_consent";
 export type ConsentState = "granted" | "denied" | "unset";
@@ -9,7 +14,7 @@ export function parseConsent(value: string | undefined | null): ConsentState {
 }
 
 export function marketingAllowed(state: ConsentState): boolean {
-  return state === "granted";
+  return state !== "denied";
 }
 
 /** Browser-side read. Returns "unset" during SSR. */

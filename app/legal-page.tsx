@@ -2,12 +2,15 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { marketingAllowed, writeConsentCookie } from "@/lib/meta/consent";
+import { notifyConsentChanged, useConsent } from "@/lib/meta/use-consent";
 import { useLocale } from "@/lib/use-locale";
 
 /**
  * Pages légales de la boutique.
  *
- * Le contenu décrit ce que le code fait réellement — Pixel et Conversions API sous consentement,
+ * Le contenu décrit ce que le code fait réellement — Pixel et Conversions API actifs par défaut
+ * avec refus possible depuis cette page,
  * agent WhatsApp initié par le client, ZR Express pour la livraison, durées de conservation des
  * variables RETENTION_*. Toute évolution du suivi doit être reportée ici : une politique qui
  * décrit autre chose que le code est pire que pas de politique du tout.
@@ -15,8 +18,31 @@ import { useLocale } from "@/lib/use-locale";
 
 export type LegalKind = "privacy" | "deletion";
 
-type Section = { title: string; paragraphs: string[]; bullets?: string[] };
+type Section = { title: string; paragraphs: string[]; bullets?: string[]; optOut?: boolean };
 type Content = { title: string; updated: string; intro: string; sections: Section[]; back: string };
+
+const optOutCopy = {
+  fr: { off: "Refuser la mesure publicitaire", on: "Réactiver la mesure publicitaire", offNow: "La mesure est désactivée sur cet appareil.", onNow: "La mesure est active sur cet appareil." },
+  en: { off: "Decline advertising measurement", on: "Re-enable advertising measurement", offNow: "Measurement is off on this device.", onNow: "Measurement is on for this device." },
+  ar: { off: "رفض قياس الإعلانات", on: "إعادة تفعيل قياس الإعلانات", offNow: "القياس معطّل على هذا الجهاز.", onNow: "القياس مفعّل على هذا الجهاز." },
+} as const;
+
+/**
+ * The real opt-out. There is no consent banner any more, so this is the control the policy
+ * points at: it writes the same "denied" cookie every tracking path already reads, which stops
+ * the Pixel, the CAPI and attribution at once. Reversible, and scoped to this browser.
+ */
+function OptOutButton({ locale }: { locale: keyof typeof optOutCopy }) {
+  const consent = useConsent();
+  const allowed = marketingAllowed(consent);
+  const copy = optOutCopy[locale];
+  return <p className="legal-optout">
+    <button type="button" className={allowed ? "secondary-button" : "primary-button"} onClick={() => { writeConsentCookie(allowed ? "denied" : "granted"); notifyConsentChanged(); }}>
+      {allowed ? copy.off : copy.on}
+    </button>
+    <small>{allowed ? copy.onNow : copy.offNow}</small>
+  </p>;
+}
 
 const CONTACT = "piece.detaches16@gmail.com";
 const UPDATED = "2026-08-12";
@@ -60,10 +86,10 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "Mesure publicitaire, uniquement avec votre accord",
+          title: "Mesure publicitaire",
           paragraphs: [
-            "Si vous acceptez la bannière de consentement, nous utilisons le Pixel Meta et l'API de conversions afin de comprendre quelles publicités amènent des commandes.",
-            "Si vous refusez, rien n'est chargé : aucun script Meta, aucun cookie de mesure, aucune adresse IP transmise. Le refus est le comportement par défaut tant que vous n'avez pas choisi.",
+            "Nous utilisons le Pixel Meta et l'API de conversions afin de comprendre quelles publicités amènent des commandes. La mesure est active par défaut lorsque vous visitez la boutique.",
+            "Vous pouvez la refuser à tout moment avec le bouton ci-dessous. Dès le refus, plus rien n'est chargé : aucun script Meta, aucun cookie de mesure, aucune adresse IP transmise.",
             "Les données transmises à Meta sont hachées avant l'envoi. Nous ne lui transmettons jamais votre nom ni votre numéro en clair.",
           ],
         },
@@ -124,10 +150,11 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "Retirer votre consentement publicitaire",
+          title: "Refuser la mesure publicitaire",
           paragraphs: [
-            "C'est immédiat et sans démarche : refusez la bannière de consentement, ou effacez les données du site dans votre navigateur. Le suivi s'arrête aussitôt, et aucun nouvel événement n'est envoyé à Meta.",
+            "C'est immédiat et sans démarche : utilisez le bouton ci-dessous, ou effacez les données du site dans votre navigateur. Le suivi s'arrête aussitôt, et aucun nouvel événement n'est envoyé à Meta.",
           ],
+          optOut: true,
         },
         {
           title: "Supprimer vos données côté Meta",
@@ -176,10 +203,10 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "Advertising measurement, only with your consent",
+          title: "Advertising measurement",
           paragraphs: [
-            "If you accept the consent banner, we use the Meta Pixel and the Conversions API to understand which adverts lead to orders.",
-            "If you decline, nothing loads: no Meta script, no measurement cookie, no IP address shared. Declining is the default until you choose.",
+            "We use the Meta Pixel and the Conversions API to understand which adverts lead to orders. Measurement is active by default when you visit the shop.",
+            "You can decline at any time with the button below. From that moment nothing loads: no Meta script, no measurement cookie, no IP address shared.",
             "Data sent to Meta is hashed beforehand. We never share your name or phone number in clear text.",
           ],
         },
@@ -240,10 +267,11 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "Withdrawing advertising consent",
+          title: "Declining advertising measurement",
           paragraphs: [
-            "This is immediate and needs no request: decline the consent banner, or clear the site data in your browser. Tracking stops at once and no new event is sent to Meta.",
+            "This is immediate and needs no request: use the button below, or clear the site data in your browser. Tracking stops at once and no new event is sent to Meta.",
           ],
+          optOut: true,
         },
         {
           title: "Deleting data held by Meta",
@@ -292,10 +320,10 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "قياس الإعلانات، بموافقتكم فقط",
+          title: "قياس الإعلانات",
           paragraphs: [
-            "إذا قبلتم شريط الموافقة، نستعمل Meta Pixel وواجهة التحويلات لمعرفة الإعلانات التي تؤدي إلى طلبات.",
-            "إذا رفضتم، لا يُحمَّل أي شيء: لا نص برمجي من Meta، ولا ملف تعريف قياس، ولا إرسال لعنوان IP. الرفض هو السلوك الافتراضي قبل اختياركم.",
+            "نستعمل Meta Pixel وواجهة التحويلات لمعرفة الإعلانات التي تؤدي إلى طلبات. القياس مفعّل تلقائياً عند زيارتكم للمتجر.",
+            "يمكنكم رفضه في أي وقت عبر الزر أدناه. عند الرفض لا يُحمَّل أي شيء: لا نص برمجي من Meta، ولا ملف تعريف قياس، ولا إرسال لعنوان IP.",
             "تُشفَّر البيانات المرسلة إلى Meta قبل إرسالها. لا نرسل اسمكم ولا رقمكم بشكل ظاهر أبداً.",
           ],
         },
@@ -356,10 +384,11 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
-          title: "سحب الموافقة على الإعلانات",
+          title: "رفض قياس الإعلانات",
           paragraphs: [
-            "فوري ولا يتطلب أي إجراء: ارفضوا شريط الموافقة، أو امسحوا بيانات الموقع من متصفحكم. يتوقف التتبع فوراً ولا يُرسل أي حدث جديد إلى Meta.",
+            "فوري ولا يتطلب أي إجراء: استعملوا الزر أدناه، أو امسحوا بيانات الموقع من متصفحكم. يتوقف التتبع فوراً ولا يُرسل أي حدث جديد إلى Meta.",
           ],
+          optOut: true,
         },
         {
           title: "حذف البيانات لدى Meta",
@@ -392,6 +421,7 @@ export default function LegalPage({ kind }: { kind: LegalKind }) {
           <h2>{section.title}</h2>
           {section.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
           {section.bullets && <ul>{section.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+          {section.optOut && <OptOutButton locale={locale} />}
         </section>)}
       </article>
     </main>

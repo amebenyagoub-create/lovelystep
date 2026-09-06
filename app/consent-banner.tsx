@@ -47,6 +47,10 @@ function readLocale(): BannerLocale {
 }
 
 /**
+ * RETIRED — not mounted anywhere. Measurement now runs by default and visitors opt out from the
+ * privacy page (see OptOutButton in legal-page.tsx). Kept because re-enabling an opt-in gate is
+ * then one import in store-tracking.tsx away; delete it if that is never coming back.
+ *
  * Marketing consent gate. Rendered on every page; hides itself once a choice is stored.
  * Declining is exactly as easy as accepting, and no tracking runs until "Accept" is pressed.
  *

@@ -21,8 +21,9 @@ const DELIVERY_COLUMNS: Array<[string, (metrics: BreakdownMetrics) => string]> =
   ["Impressions", (m) => count(m.impressions)],
   ["CPM", (m) => money(m.cpmMinor)],
   ["Clicks (all)", (m) => count(m.clicks)],
-  ["CTR", (m) => number(m.ctrPercent, "%", 2)],
+  ["CTR (all)", (m) => number(m.ctrPercent, "%", 2)],
   ["Link clicks", (m) => count(m.linkClicks)],
+  ["CTR (link)", (m) => number(m.linkCtrPercent, "%", 2)],
   ["Landing views", (m) => count(m.landingPageViews)],
   ["Adds to cart", (m) => count(m.addsToCart)],
   ["Checkouts", (m) => count(m.checkouts)],
@@ -40,7 +41,8 @@ function campaignMetrics(analysis: CampaignAnalysis): BreakdownMetrics {
     frequency: advertising.frequency,
     clicks: advertising.clicks,
     linkClicks: advertising.linkClicks,
-    ctrPercent: advertising.ctrPercent,
+    ctrPercent: advertising.impressions > 0 ? (advertising.clicks / advertising.impressions) * 100 : null,
+    linkCtrPercent: advertising.ctrPercent,
     cpmMinor: advertising.cpmMinor,
     cpcMinor: advertising.cpcMinor,
     landingPageViews: advertising.landingPageViews,
@@ -148,8 +150,8 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
           <Metric label="Daily reach sum" value={kpis.advertising.reach.toLocaleString("en-US")} />
           <Metric label="Frequency" value={number(kpis.advertising.frequency, "", 2)} />
           <Metric label="Link clicks" value={kpis.advertising.linkClicks.toLocaleString("en-US")} />
-          <Metric label="CTR" value={number(kpis.advertising.ctrPercent, "%")} />
-          <Metric label="CPC" value={money(kpis.advertising.cpcMinor)} />
+          <Metric label="CTR (link)" value={number(kpis.advertising.ctrPercent, "%", 2)} note="link clicks / impressions" />
+          <Metric label="CPC (link)" value={money(kpis.advertising.cpcMinor)} note="cost per link click" />
           <Metric label="CPM" value={money(kpis.advertising.cpmMinor)} />
           <Metric label="Meta CPA" value={money(kpis.advertising.metaCpaMinor)} />
           <Metric label="Meta ROAS" value={number(kpis.advertising.metaRoas, "x", 2)} />

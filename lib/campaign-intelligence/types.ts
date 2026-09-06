@@ -177,7 +177,10 @@ export type BreakdownMetrics = {
   frequency: number | null;
   clicks: number;
   linkClicks: number;
+  /** All clicks / impressions — what Meta's app labels simply "CTR". */
   ctrPercent: number | null;
+  /** Link clicks / impressions — the stricter figure, always the lower of the two. */
+  linkCtrPercent: number | null;
   cpmMinor: number | null;
   cpcMinor: number | null;
   landingPageViews: number;

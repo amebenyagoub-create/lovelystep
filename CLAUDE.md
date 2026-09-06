@@ -24,7 +24,13 @@ Règles à respecter dans ce domaine :
 - **`actions` / `action_values` se lisent par `action_type`**, jamais par position.
 - **`content_ids` et l'`id` du catalogue viennent tous deux de `contentId()`.** Toute
   divergence casse le rapprochement événements ↔ catalogue.
-- **Sans consentement : aucun suivi.** Ni Pixel, ni CAPI, ni attribution, ni lecture d'IP.
+- **Mesure active par défaut, refus possible.** `marketingAllowed()` renvoie vrai tant que le
+  cookie `lovelystep_consent` ne vaut pas `denied` : Pixel, CAPI, attribution et lecture d'IP
+  fonctionnent sans action du visiteur. Un `denied` explicite coupe tout, par les mêmes
+  chemins qu'avant. Le refus se fait depuis la page de confidentialité (`legal-page.tsx`),
+  il n'y a plus de bannière. **Toute évolution ici doit être reportée dans les trois langues
+  de la politique de confidentialité** : une politique qui décrit autre chose que le code
+  est une fausse déclaration faite au visiteur, pas un détail de rédaction.
 - **Aucune donnée personnelle** dans `meta_events`, `meta_attribution` ni dans les journaux ;
   les erreurs passent par `redact()`.
 - **Un échec de suivi ne bloque jamais une commande** : tout part dans `after()`.

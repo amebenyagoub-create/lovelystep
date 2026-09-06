@@ -168,6 +168,7 @@ function foldBreakdownMetrics(rowsForEntity: BreakdownInsightRecord[], rates: Ma
   const impressions = total((row) => row.impressions);
   const clicks = total((row) => row.clicks);
   const reachDailySum = total((row) => row.reach);
+  const linkClicks = total((row) => row.linkClicks);
   const resolvedSpend = spendConverted ? spendMinor : null;
   return {
     spendMinor: resolvedSpend,
@@ -176,8 +177,9 @@ function foldBreakdownMetrics(rowsForEntity: BreakdownInsightRecord[], rates: Ma
     reachDailySum,
     frequency: reachDailySum > 0 ? impressions / reachDailySum : null,
     clicks,
-    linkClicks: total((row) => row.linkClicks),
+    linkClicks: linkClicks,
     ctrPercent: impressions > 0 ? (clicks / impressions) * 100 : null,
+    linkCtrPercent: impressions > 0 ? (linkClicks / impressions) * 100 : null,
     cpmMinor: resolvedSpend !== null && impressions > 0 ? Math.round((resolvedSpend / impressions) * 1000) : null,
     cpcMinor: resolvedSpend !== null && clicks > 0 ? Math.round(resolvedSpend / clicks) : null,
     landingPageViews: total((row) => row.landingPageViews),
