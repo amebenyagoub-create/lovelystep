@@ -1,9 +1,9 @@
 // Applies carrier and return costs to orders placed before the costs existed.
 //
-// Same two rules as syncOrderDeliveryCost in lib/db-postgres.ts, kept deliberately identical:
-//   - the carrier is paid only once a parcel was actually dispatched (reached "shipped"),
-//     so a cancelled order that never left costs nothing;
-//   - the return leg is charged only on a refused or returned parcel, never on a delivered one.
+// Same rule as syncOrderDeliveryCost in lib/db-postgres.ts, kept deliberately identical:
+// ZR charges nothing to send, so a dispatched parcel's carrier cost is that order's own
+// shipping fee passed straight through; a parcel that came back carries no send cost at all,
+// only the return fee; an order that never shipped costs nothing.
 //
 // Rows an admin entered by hand (source 'manual') are left untouched.
 //
@@ -24,28 +24,20 @@ const client = new pg.Client({
 
 const COMPUTED = `
   SELECT o.id, o.order_number, o.status, o.delivery_type, o.wilaya_code,
-    CASE WHEN (EXISTS(SELECT 1 FROM order_status_history h WHERE h.order_id=o.id AND h.status='shipped')
-               OR o.status IN ('shipped','delivered','refused','returned'))
-      THEN (CASE WHEN o.delivery_type='office' THEN r.carrier_office_cents ELSE r.carrier_home_cents END)
+    CASE
+      WHEN o.status IN ('refused','returned') THEN 0
+      WHEN (EXISTS(SELECT 1 FROM order_status_history h WHERE h.order_id=o.id AND h.status='shipped')
+            OR o.status IN ('shipped','delivered')) THEN o.shipping_cents
       ELSE 0 END AS carrier_cost,
-    CASE WHEN o.status IN ('refused','returned') THEN r.return_cost_cents ELSE 0 END AS return_cost
+    CASE WHEN o.status IN ('refused','returned') THEN COALESCE(r.return_cost_cents, 15000) ELSE 0 END AS return_cost
   FROM orders o
-  JOIN delivery_rates r ON r.wilaya_code = o.wilaya_code
+  LEFT JOIN delivery_rates r ON r.wilaya_code = o.wilaya_code
   LEFT JOIN order_delivery_costs c ON c.order_id = o.id
   WHERE c.source IS DISTINCT FROM 'manual'
 `;
 
 try {
   await client.connect();
-
-  const configured = await client.query(
-    "SELECT count(*)::int AS n FROM delivery_rates WHERE carrier_home_cents > 0 OR carrier_office_cents > 0");
-  if (configured.rows[0].n === 0) {
-    console.log("No carrier costs are configured yet.");
-    console.log("Fill them in first: Admin -> Livraison -> the 'Coût domicile' / 'Coût bureau' columns.");
-    process.exit(0);
-  }
-  console.log(`${configured.rows[0].n} wilaya(s) have carrier costs configured.\n`);
 
   const { rows } = await client.query(COMPUTED + " ORDER BY o.created_at DESC");
   if (!rows.length) { console.log("No orders to cost."); process.exit(0); }

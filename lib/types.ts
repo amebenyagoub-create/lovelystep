@@ -248,10 +248,15 @@ export type DeliveryRate = {
   /** Charged to the customer — revenue. */
   homeCents: number;
   officeCents: number;
-  /** Charged to us by the carrier — expense. */
+  /**
+   * Reserved, not surfaced in the admin and currently always 0.
+   * ZR Express charges nothing to send — the customer's delivery fee is passed straight to
+   * them — so an order's send cost is derived from its own shipping_cents, not from here.
+   * These stay for the day a carrier does bill a separate sending fee.
+   */
   carrierHomeCents: number;
   carrierOfficeCents: number;
-  /** Billed on a refused or returned parcel. */
+  /** Billed on a refused or returned parcel. The only thing ZR actually invoices. */
   returnCostCents: number;
   active: boolean;
 };

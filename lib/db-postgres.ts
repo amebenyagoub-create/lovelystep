@@ -1234,13 +1234,17 @@ export async function upsertOrderDeliveryCost(orderId: number, carrierCostCents:
 }
 
 /**
- * Derives an order's carrier and return cost from its wilaya and delivery type.
+ * Derives an order's delivery cost.
  *
- * Two rules make the number honest rather than merely present:
- *  - the carrier is only paid once a parcel is actually dispatched, so nothing is charged to an
- *    order that never reached "shipped" (a cancelled order costs nothing);
- *  - the return leg is charged only when the parcel comes back — refused or returned. Applying
- *    it to a delivered order would understate profit on every successful sale.
+ * ZR Express charges nothing to send: the delivery fee the customer pays is passed straight
+ * through to them, so the carrier cost of a shipped parcel is exactly that order's own
+ * shipping_cents. Recording it that way makes the fee cancel out in the profit formula
+ * (subtotal + shipping - carrier) and leaves product margin as the real result. Using the
+ * order's stored fee rather than the current wilaya price also keeps history correct when a
+ * price changes later.
+ *
+ * The only thing ZR actually bills is the return leg, and only on a parcel that comes back.
+ * A refused or returned order therefore carries no send cost at all - just the return fee.
  *
  * A row an admin entered by hand (source 'manual') is never overwritten.
  * Never throws: a costing failure must not block an order status change.
@@ -1248,19 +1252,20 @@ export async function upsertOrderDeliveryCost(orderId: number, carrierCostCents:
 export async function syncOrderDeliveryCost(orderId: number): Promise<void> {
   try {
     const found = await rows(
-      `SELECT o.status, o.delivery_type,
+      `SELECT o.status, o.shipping_cents,
               EXISTS(SELECT 1 FROM order_status_history h WHERE h.order_id=o.id AND h.status='shipped') AS was_shipped,
-              r.carrier_home_cents, r.carrier_office_cents, r.return_cost_cents
+              COALESCE(r.return_cost_cents, 15000) AS return_cost_cents
        FROM orders o LEFT JOIN delivery_rates r ON r.wilaya_code = o.wilaya_code
        WHERE o.id = $1`, [orderId]);
     const row = found[0];
-    if (!row || row.carrier_home_cents == null) return; // no rate configured for that wilaya yet
+    if (!row) return;
 
     const status = String(row.status);
-    const dispatched = Boolean(row.was_shipped) || ["shipped", "delivered", "refused", "returned"].includes(status);
-    const carrier = !dispatched ? 0
-      : Number(String(row.delivery_type) === "office" ? row.carrier_office_cents : row.carrier_home_cents);
-    const returned = ["refused", "returned"].includes(status) ? Number(row.return_cost_cents ?? 0) : 0;
+    const cameBack = ["refused", "returned"].includes(status);
+    const dispatched = Boolean(row.was_shipped) || ["shipped", "delivered"].includes(status);
+    // Sent and not returned: the fee the customer paid goes to the carrier.
+    const carrier = cameBack || !dispatched ? 0 : Number(row.shipping_cents ?? 0);
+    const returned = cameBack ? Number(row.return_cost_cents ?? 0) : 0;
 
     await pool.query(
       `INSERT INTO order_delivery_costs (order_id,carrier_cost_cents,return_cost_cents,source) VALUES ($1,$2,$3,'auto')
