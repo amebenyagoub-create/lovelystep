@@ -22,7 +22,7 @@
 // (rate_date, currency), so re-running corrects rather than duplicates.
 
 import { syncRecentInsights } from "../lib/meta/ads-insights.ts";
-import { listSyncState, upsertFxRate } from "../lib/db-postgres.ts";
+import { listSyncState, recordSyncResult, upsertFxRate } from "../lib/db-postgres.ts";
 
 const args = new Map(
   process.argv.slice(2)
@@ -59,6 +59,10 @@ if (!args.has("skip-sync")) {
   console.log(`\n=== syncing insights (trailing ${days} days) ===`);
   try {
     const results = await syncRecentInsights(days);
+    // Record it like the cron and the admin button do. Without this a successful run here left
+    // the stored lastError from an earlier server-side failure in place, so the dashboard kept
+    // showing "insights may be stale" over data that had just been refreshed.
+    await recordSyncResult("insights", true, null, results).catch(() => undefined);
     let total = 0;
     for (const result of results) {
       total += result.rows;
@@ -71,6 +75,7 @@ if (!args.has("skip-sync")) {
     }
   } catch (error) {
     failed = true;
+    await recordSyncResult("insights", false, String(error?.message ?? error).slice(0, 300), null).catch(() => undefined);
     console.error("  SYNC FAILED:", error?.message ?? error);
     if (error?.stack) console.error(error.stack);
   }

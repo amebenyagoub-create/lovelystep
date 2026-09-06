@@ -184,8 +184,8 @@ export default function CampaignIntelligencePanel({ csrfToken }: { csrfToken: st
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
+  const load = useCallback(async (keepError = false) => {
+    setLoading(true); if (!keepError) setError("");
     try {
       const response = await fetch(`/api/admin/campaign-intelligence?since=${encodeURIComponent(since)}&until=${encodeURIComponent(until)}`, { cache: "no-store" });
       const value = await response.json().catch(() => ({}));
@@ -205,6 +205,7 @@ export default function CampaignIntelligencePanel({ csrfToken }: { csrfToken: st
    */
   const syncThenLoad = useCallback(async () => {
     setSyncing(true); setError("");
+    let failure = "";
     try {
       const response = await fetch("/api/admin/meta/sync", {
         method: "POST",
@@ -212,13 +213,15 @@ export default function CampaignIntelligencePanel({ csrfToken }: { csrfToken: st
         body: JSON.stringify({ target: "insights" }),
       });
       const value = await response.json().catch(() => ({}));
-      if (!response.ok) setError(value.error || "Meta sync failed; showing the last stored data.");
+      if (!response.ok) failure = value.error || "Meta sync failed. The figures below are the last stored data.";
     } catch {
-      setError("Meta sync could not be reached; showing the last stored data.");
+      failure = "Meta sync could not be reached. The figures below are the last stored data.";
     } finally {
       setSyncing(false);
     }
-    await load();
+    // Recompute either way: a failed sync should still show what is stored, with the reason.
+    await load(Boolean(failure));
+    if (failure) setError(`${failure} Open the Meta tab to see the sync error in full.`);
   }, [csrfToken, load]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
