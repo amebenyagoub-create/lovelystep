@@ -530,3 +530,11 @@
   .order-item-list small{font-size:11px}
   .order-item-list em{font-size:15px}
 }
+
+/* The garment's own size code (90 / 100 / 110 / 120) on the size picker.
+   It was never shown: the card gave the age and the CHILD's height, so there was no way to tell
+   which physical size you were buying, and the cm figure read as if it were the garment. The
+   ranges themselves stay as they are - per lib/product-size.ts they come from the supplier's
+   height column cross-checked against measured garments, and a 90 cm child needs the 100. */
+.size-options button .size-code{display:block;font-family:"Fredoka",sans-serif;font-size:15px;line-height:1;color:var(--navy);margin-bottom:4px}
+.size-options button.selected .size-code{color:var(--coral)}
