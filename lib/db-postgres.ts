@@ -283,6 +283,126 @@ export async function createOrder(input:CreateOrderInput):Promise<Order>{await e
 export async function updateDeliverySync(id:number,patch:{status:Order["deliverySyncStatus"];externalId?:string|null;error?:string|null}):Promise<void>{await ensureDatabase();await pool.query("UPDATE orders SET delivery_sync_status=$1,delivery_external_id=$2,delivery_sync_error=$3,updated_at=NOW() WHERE id=$4",[patch.status,patch.externalId??null,patch.error??null,id]);}
 export type DeliveryDispatchClaim={status:"claimed";order:Order}|{status:"not_found"}|{status:"not_confirmed"}|{status:"pending"}|{status:"already_sent"};
 export async function claimOrderForDelivery(id:number):Promise<DeliveryDispatchClaim>{await ensureDatabase();const claimed=await pool.query("UPDATE orders SET delivery_sync_status='pending',delivery_sync_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('confirmed','preparing') AND delivery_external_id IS NULL AND delivery_sync_status IN ('not_configured','failed') RETURNING *",[id]);if(claimed.rows[0])return{status:"claimed",order:mapOrder(claimed.rows[0])};const existing=await rows("SELECT status,delivery_sync_status,delivery_external_id FROM orders WHERE id=$1",[id]);if(!existing[0])return{status:"not_found"};if(existing[0].delivery_external_id||existing[0].delivery_sync_status==="sent")return{status:"already_sent"};if(existing[0].delivery_sync_status==="pending")return{status:"pending"};return{status:"not_confirmed"};}
+/** What an admin may change on an existing order. Prices are never taken from the client. */
+export type OrderEditInput = {
+  customerName: string; phone: string;
+  wilayaCode: string; wilayaName: string; commune: string; address: string;
+  deliveryType: DeliveryType;
+  items: Array<{ productId: number; size: string; color?: string; quantity: number }>;
+};
+export type OrderEditResult =
+  | { status: "updated"; order: Order }
+  | { status: "not_found" }
+  | { status: "stock_unavailable" }
+  | { status: "dispatched" }
+  | { status: "invalid"; reason: string };
+
+/**
+ * Rebuilds an order's contents and delivery details after an admin correction.
+ *
+ * Deliberate choices, because an order carries money, stock and a conversion already reported
+ * to Meta:
+ *  - Prices, names and images are re-read from the products table. The client sends only
+ *    productId, size, colour and quantity, so a tampered request cannot set its own price.
+ *  - Stock is released for the old lines and reserved for the new ones inside one transaction,
+ *    and only when the order currently holds a reservation. A cancelled or returned order does
+ *    not hold stock, so editing it must not silently take any.
+ *  - Subtotal, shipping and total are recomputed from the wilaya and delivery type rather than
+ *    trusted, so the recorded total always matches the lines above it.
+ *  - The order is re-queued for the Google Sheets export, since the exported row is now stale.
+ *  - An order already handed to ZR Express is refused: their copy cannot be changed from here,
+ *    and letting the two drift is worse than refusing the edit.
+ *
+ * What is deliberately NOT touched: meta_attribution, meta_events, and the Purchase already
+ * sent to Meta. That event reported the value at the moment of sale; re-sending it would either
+ * be ignored by deduplication or double-count the conversion. The advertising record stays as
+ * it happened, and the store's own totals become the corrected truth.
+ */
+export async function updateOrderDetails(id: number, input: OrderEditInput, adminId: number | null): Promise<OrderEditResult> {
+  await ensureDatabase();
+  if (!Array.isArray(input.items) || input.items.length === 0) return { status: "invalid", reason: "Une commande doit contenir au moins un article." };
+  if (input.items.length > 20) return { status: "invalid", reason: "Trop d'articles dans la commande." };
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const found = await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE", [id]);
+    if (!found.rows[0]) { await client.query("ROLLBACK"); return { status: "not_found" }; }
+    const before = mapOrder(found.rows[0]);
+    const reserved = Boolean(found.rows[0].stock_reserved);
+    const externalId = found.rows[0].delivery_external_id;
+    const syncStatus = String(found.rows[0].delivery_sync_status ?? "");
+    if (externalId || syncStatus === "sent" || syncStatus === "pending") {
+      await client.query("ROLLBACK");
+      return { status: "dispatched" };
+    }
+
+    // Resolve every line against the catalogue: the client never supplies money.
+    const items: OrderItem[] = [];
+    for (const line of input.items) {
+      const quantity = Math.floor(Number(line.quantity));
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Quantite invalide (1 a 10)." }; }
+      const productRow = await client.query("SELECT * FROM products WHERE id=$1", [Math.floor(Number(line.productId))]);
+      if (!productRow.rows[0]) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Produit introuvable." }; }
+      const product = mapProduct(productRow.rows[0]);
+      const color = String(line.color ?? "").trim();
+      const size = String(line.size ?? "").trim();
+      if (!size) { await client.query("ROLLBACK"); return { status: "invalid", reason: `Taille manquante pour ${product.name}.` }; }
+      items.push({
+        productId: product.id,
+        slug: product.slug,
+        name: product.name,
+        image: (color && product.colorImages?.[color]) || product.images[0] || "",
+        size,
+        ...(color ? { color } : {}),
+        quantity,
+        unitPriceCents: product.priceCents,
+        unitCostCents: product.costCents,
+      });
+    }
+
+    // Swap the reservation in one step so a failure leaves the original stock intact.
+    if (reserved) {
+      await changeStock(client, before.items, 1);
+      await changeStock(client, items, -1);
+    }
+
+    const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
+    const rateRow = await client.query("SELECT home_cents, office_cents FROM delivery_rates WHERE wilaya_code=$1", [String(input.wilayaCode).padStart(2, "0")]);
+    if (!rateRow.rows[0]) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Wilaya inconnue." }; }
+    const shippingCents = Number(input.deliveryType === "office" ? rateRow.rows[0].office_cents : rateRow.rows[0].home_cents) || 0;
+    const totalCents = subtotalCents + shippingCents;
+
+    const updated = await client.query(
+      `UPDATE orders SET customer_name=$1, phone=$2, wilaya_code=$3, wilaya_name=$4, commune=$5, city=$5,
+         address=$6, delivery_type=$7, items_json=$8::jsonb, subtotal_cents=$9, shipping_cents=$10, total_cents=$11,
+         sheet_synced_at=NULL, sheet_attempts=0, sheet_last_error=NULL, updated_at=NOW()
+       WHERE id=$12 RETURNING *`,
+      [String(input.customerName).slice(0, 120), String(input.phone).slice(0, 40),
+       String(input.wilayaCode).padStart(2, "0"), String(input.wilayaName).slice(0, 80),
+       String(input.commune).slice(0, 80), String(input.address).slice(0, 300),
+       input.deliveryType === "office" ? "office" : "home",
+       JSON.stringify(items), subtotalCents, shippingCents, totalCents, id],
+    );
+    await client.query("COMMIT");
+
+    // Shipping may have moved, and the carrier cost follows the fee on this account.
+    await syncOrderDeliveryCost(id);
+    await audit(adminId, "order.edit", "order", String(id), {
+      before: { totalCents: before.totalCents, items: before.items.length, commune: before.commune, phone: before.phone },
+      after: { totalCents, items: items.length, commune: input.commune, phone: input.phone },
+    }).catch(() => undefined);
+
+    return { status: "updated", order: mapOrder(updated.rows[0]) };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error instanceof StockUnavailableError) return { status: "stock_unavailable" };
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 const releasing=new Set<OrderStatus>(["refused","returned","cancelled"]);
 export async function updateOrderStatus(id:number,status:OrderStatus,adminId:number|null=null,reasonCode:string|null=null,note:string|null=null):Promise<"updated"|"not_found"|"stock_unavailable">{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");const result=await client.query("SELECT * FROM orders WHERE id=$1 FOR UPDATE",[id]);if(!result.rows[0]){await client.query("ROLLBACK");return "not_found";}const order=mapOrder(result.rows[0]);const reserved=Boolean(result.rows[0].stock_reserved);const shouldReserve=!releasing.has(status);if(reserved&&!shouldReserve)await changeStock(client,order.items,1);if(!reserved&&shouldReserve)await changeStock(client,order.items,-1);await client.query("UPDATE orders SET status=$1,stock_reserved=$2,updated_at=NOW() WHERE id=$3",[status,shouldReserve,id]);if(order.status!==status)await client.query("INSERT INTO order_status_history (order_id,status,changed_by_admin_id,reason_code,note) VALUES ($1,$2,$3,$4,$5)",[id,status,adminId,reasonCode,note]);await client.query("COMMIT");await syncOrderDeliveryCost(id);return "updated";}catch(error){await client.query("ROLLBACK");if(error instanceof StockUnavailableError)return "stock_unavailable";throw error;}finally{client.release();}}
 
