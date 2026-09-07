@@ -104,6 +104,9 @@ export type Order = {
   /** Bureau ZR choisi par le client quand deliveryType vaut "office". Devine a l'expedition si absent. */
   deliveryHubId: string | null;
   deliveryHubName: string | null;
+  /** Fil WhatsApp de confirmation, recopie du Sheet ou l’agent l’ecrit. Lecture seule. */
+  whatsappLog: string | null;
+  whatsappLogAt: string | null;
   deliveryExternalId: string | null;
   deliverySyncStatus: "not_configured" | "pending" | "sent" | "failed";
   deliverySyncError: string | null;

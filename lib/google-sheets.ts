@@ -2,7 +2,7 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import { createSign } from "node:crypto";
-import { listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
+import { listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, rememberOrderConversation, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
 import { log, errorMessage } from "./log";
 import { frenchAgeLabel } from "./product-size";
 import { siteUrl } from "./site-url";
@@ -336,15 +336,31 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
   return "appended";
 }
 
-export async function readOrderStatesFromGoogleSheet(): Promise<Array<{ orderNumber: string; sheetState: string; status: OrderStatus | null }>> {
+export type SheetOrderRow = { orderNumber: string; sheetState: string; status: OrderStatus | null; conversation: string };
+
+/**
+ * Lit l'etat ET la conversation WhatsApp ecrits par l'agent de confirmation.
+ *
+ * La boutique n'ecrit que les colonnes A a S ; l'agent en ajoute les siennes a droite,
+ * dont convo_log. On la retrouve donc par son en-tete et non par un index fige : l'agent
+ * peut inserer une colonne sans que la boutique lise soudain la mauvaise.
+ *
+ * Une ligne sans etat est conservee ici, car sa conversation peut avoir avance alors que
+ * l'agent n'a pas encore conclu. Le tri des etats se fait plus loin.
+ */
+export async function readOrderStatesFromGoogleSheet(): Promise<SheetOrderRow[]> {
   const config = sheetsConfig();
   if (!config) return [];
   await ensureHeaders(config);
-  const response = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:S"));
+  const conversationColumn = await headerIndex(config, "convo_log").catch(() => -1);
+  const response = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:BZ"));
   return (response.values ?? []).flatMap((row) => {
     const orderNumber = String(row[0] ?? "").trim();
+    if (!orderNumber) return [];
     const sheetState = String(row[18] ?? "").trim();
-    return orderNumber && sheetState ? [{ orderNumber, sheetState, status: orderStatusFromSheetState(sheetState) }] : [];
+    const conversation = conversationColumn >= 0 ? String(row[conversationColumn] ?? "").trim() : "";
+    if (!sheetState && !conversation) return [];
+    return [{ orderNumber, sheetState, status: sheetState ? orderStatusFromSheetState(sheetState) : null, conversation }];
   });
 }
 
@@ -355,11 +371,18 @@ export async function syncOrderStatesFromGoogleSheet(): Promise<{ orders: Order[
   let updated = 0;
 
   for (const row of sheetRows) {
+    const order = ordersByNumber.get(row.orderNumber.toUpperCase());
+    // La conversation avance independamment de l'etat : elle est recopiee avant tout filtrage,
+    // sinon une commande dont l'etat n'a pas bouge garderait un fil fige.
+    if (order && row.conversation) {
+      order.whatsappLog = row.conversation;
+      await rememberOrderConversation(order.id, row.conversation).catch(() => undefined);
+    }
+    if (!row.sheetState) continue;
     if (!row.status) {
       unknownStates.add(row.sheetState);
       continue;
     }
-    const order = ordersByNumber.get(row.orderNumber.toUpperCase());
     if (!order || lastStates.get(order.id) === row.sheetState) continue;
     if (order.status !== row.status) {
       const result = await updateOrderStatus(order.id, row.status, null, "google_sheet", `État Google Sheets : ${row.sheetState}`);

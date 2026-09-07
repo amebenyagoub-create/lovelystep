@@ -93,6 +93,8 @@ db.exec(`
     delivery_type TEXT NOT NULL DEFAULT 'home',
     delivery_hub_id TEXT,
     delivery_hub_name TEXT,
+    whatsapp_log TEXT,
+    whatsapp_log_at TEXT,
     delivery_external_id TEXT,
     delivery_sync_status TEXT NOT NULL DEFAULT 'not_configured',
     delivery_sync_error TEXT,
@@ -215,6 +217,8 @@ ensureColumn("orders", "commune", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("orders", "delivery_type", "TEXT NOT NULL DEFAULT 'home'");
 ensureColumn("orders", "delivery_hub_id", "TEXT");
 ensureColumn("orders", "delivery_hub_name", "TEXT");
+ensureColumn("orders", "whatsapp_log", "TEXT");
+ensureColumn("orders", "whatsapp_log_at", "TEXT");
 ensureColumn("orders", "delivery_external_id", "TEXT");
 ensureColumn("orders", "delivery_sync_status", "TEXT NOT NULL DEFAULT 'not_configured'");
 ensureColumn("orders", "delivery_sync_error", "TEXT");
@@ -377,6 +381,8 @@ function mapOrder(row: Row): Order {
     address: String(row.address), deliveryType: (row.delivery_type === "office" ? "office" : "home") as DeliveryType,
     deliveryHubId: row.delivery_hub_id == null ? null : String(row.delivery_hub_id),
     deliveryHubName: row.delivery_hub_name == null ? null : String(row.delivery_hub_name),
+    whatsappLog: row.whatsapp_log == null ? null : String(row.whatsapp_log),
+    whatsappLogAt: row.whatsapp_log_at == null ? null : String(row.whatsapp_log_at),
     deliveryExternalId: row.delivery_external_id == null ? null : String(row.delivery_external_id),
     deliverySyncStatus: String(row.delivery_sync_status ?? "not_configured") as Order["deliverySyncStatus"],
     deliverySyncError: row.delivery_sync_error == null ? null : String(row.delivery_sync_error),

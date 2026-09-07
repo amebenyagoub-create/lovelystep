@@ -148,7 +148,7 @@ function mapOrder(row: Row): Order {
   const customerName = String(row.customer_name); const nameParts = customerName.trim().split(/\s+/);
   return { id:Number(row.id),orderNumber:String(row.order_number),customerId:row.customer_id==null?null:Number(row.customer_id),firstName:String(row.first_name??"")||nameParts[0]||"",lastName:String(row.last_name??"")||nameParts.slice(1).join(" "),customerName,
     phone:String(row.phone),city:String(row.city),wilayaCode:String(row.wilaya_code??""),wilayaName:String(row.wilaya_name??row.city??""),commune:String(row.commune??row.city??""),address:String(row.address??""),
-    deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryHubId:row.delivery_hub_id==null?null:String(row.delivery_hub_id),deliveryHubName:row.delivery_hub_name==null?null:String(row.delivery_hub_name),deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
+    deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryHubId:row.delivery_hub_id==null?null:String(row.delivery_hub_id),deliveryHubName:row.delivery_hub_name==null?null:String(row.delivery_hub_name),whatsappLog:row.whatsapp_log==null?null:String(row.whatsapp_log),whatsappLogAt:row.whatsapp_log_at==null?null:new Date(row.whatsapp_log_at as string).toISOString(),deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
     deliverySyncError:row.delivery_sync_error==null?null:String(row.delivery_sync_error),notes:String(row.notes??""),status:String(row.status) as OrderStatus,items:parseJson<OrderItem[]>(row.items_json,[]),
     subtotalCents:Number(row.subtotal_cents),shippingCents:Number(row.shipping_cents),totalCents:Number(row.total_cents),statusHistory:[],refunds:[],deliveryCost:null,attribution:null,sheetSyncedAt:row.sheet_synced_at==null?null:timestamp(row.sheet_synced_at),sheetAttempts:Number(row.sheet_attempts??0),sheetLastError:row.sheet_last_error==null?null:String(row.sheet_last_error),createdAt:timestamp(row.created_at),updatedAt:timestamp(row.updated_at) };
 }
@@ -186,6 +186,9 @@ async function enrichOrders(orders: Order[]): Promise<Order[]> {
 export async function listOrders(): Promise<Order[]> { return enrichOrders((await rows("SELECT * FROM orders ORDER BY created_at DESC LIMIT 250")).map(mapOrder)); }
 export async function listOrderSheetStates(): Promise<Map<number, string>> { return new Map((await rows("SELECT id,google_sheet_state FROM orders WHERE google_sheet_state IS NOT NULL")).map((row) => [Number(row.id), String(row.google_sheet_state)])); }
 export async function rememberOrderSheetState(id: number, state: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET google_sheet_state=$1 WHERE id=$2", [state, id]); }
+/** Recopie le fil WhatsApp ecrit par l’agent. N’ecrit que si le texte a change, pour ne pas
+ *  toucher whatsapp_log_at a chaque passage du cron et faire croire a une activite. */
+export async function rememberOrderConversation(id: number, conversation: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET whatsapp_log=$1, whatsapp_log_at=NOW() WHERE id=$2 AND COALESCE(whatsapp_log,'') IS DISTINCT FROM $1", [conversation, id]); }
 
 /**
  * Google Sheet outbox.
