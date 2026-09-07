@@ -497,3 +497,36 @@
   .trust-strip span{font-size:10px;margin-top:2px}
   .collection{padding-top:44px}
 }
+
+/* Orders tab: what was actually ordered, and a card that does not fill a phone screen.
+   The items cell used to be one comma-joined string with a single combined quantity, so a
+   two-product order was unreadable and you could not tell which line the quantity belonged to.
+   Appended last on purpose: these override the earlier mobile rules at equal specificity. */
+.order-item-list{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+.order-item-list li{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center}
+.order-item-list img,.order-item-noimage{width:34px;height:41px;object-fit:cover;border-radius:6px;background:var(--cream);display:block}
+.order-item-list span{min-width:0}
+.order-item-list b{display:block;font-size:11px;line-height:1.25;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.order-item-list small{display:block;margin:1px 0 0;font-size:10px;color:var(--muted);line-height:1.3}
+.order-item-list em{font-style:normal;font-weight:900;font-size:13px;color:var(--coral);white-space:nowrap}
+
+@media(max-width:800px){
+  /* Roughly a third off the card height: smaller type, tighter padding, no duplicated labels. */
+  .order-row:not(.order-head){padding:12px;gap:9px;border-radius:14px}
+  .order-number>strong{font-size:14px;margin:1px 0}
+  .order-customer{padding-top:9px}
+  .order-customer b{font-size:13px}
+  .order-customer a{font-size:14px;margin:3px 0}
+  .order-customer small,.order-items small{margin-top:2px;line-height:1.35}
+  .order-total strong{font-size:15px;margin:1px 0}
+  .order-items{padding:9px;border-radius:10px}
+  .order-items>b{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+  /* Bigger thumbnails here than on desktop: the card is full-width, so there is room to
+     actually recognise the garment at a glance. */
+  .order-item-list{gap:8px;margin-top:8px}
+  .order-item-list li{grid-template-columns:44px minmax(0,1fr) auto;gap:10px}
+  .order-item-list img,.order-item-noimage{width:44px;height:53px;border-radius:8px}
+  .order-item-list b{font-size:12px;white-space:normal}
+  .order-item-list small{font-size:11px}
+  .order-item-list em{font-size:15px}
+}
