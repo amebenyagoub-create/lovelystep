@@ -306,7 +306,7 @@ type OrderEditLine = { productId: number; size: string; color: string; quantity:
 function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, onSave }: {
   order: Order | null; products: Product[]; deliveryRates: DeliveryRate[]; busy: boolean;
   onError: (message: string) => void; onClose: () => void;
-  onSave: (body: { customerName: string; phone: string; wilayaCode: string; commune: string; address: string; deliveryType: Order["deliveryType"]; items: OrderEditLine[] }) => Promise<void>;
+  onSave: (body: { customerName: string; phone: string; wilayaCode: string; commune: string; address: string; deliveryType: Order["deliveryType"]; negotiatedTotalCents: number | null; items: OrderEditLine[] }) => Promise<void>;
 }) {
   const [customerName, setCustomerName] = useState(order?.customerName ?? "");
   const [phone, setPhone] = useState(order?.phone ?? "");
@@ -315,6 +315,8 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
   const [address, setAddress] = useState(order?.address ?? "");
   const [deliveryType, setDeliveryType] = useState<Order["deliveryType"]>(order?.deliveryType ?? "home");
   const [lines, setLines] = useState<OrderEditLine[]>((order?.items ?? []).map((item) => ({ productId: item.productId, size: item.size, color: item.color ?? "", quantity: item.quantity })));
+  // Saisi en dinars, comme on le dit au telephone. Vide = on garde le tarif catalogue.
+  const [negotiated, setNegotiated] = useState(order && order.subtotalCents + order.shippingCents !== order.totalCents ? String(Math.round(order.totalCents / 100)) : "");
   const [communes, setCommunes] = useState<string[]>([]);
 
   useEffect(() => {
@@ -342,12 +344,16 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
   const rate = deliveryRates.find((item) => item.wilayaCode === wilayaCode);
   const subtotal = lines.reduce((total, line) => total + (productOf(line.productId)?.priceCents ?? 0) * line.quantity, 0);
   const shipping = rate ? (deliveryType === "office" ? rate.officeCents : rate.homeCents) : 0;
+  const negotiatedCents = negotiated.trim() ? Math.round(Number(negotiated.trim().replace(",", ".")) * 100) : null;
+  const effectiveTotal = negotiatedCents !== null && Number.isFinite(negotiatedCents) ? negotiatedCents : subtotal + shipping;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!lines.length) { onError("La commande doit contenir au moins un article."); return; }
     if (lines.some((line) => !line.size)) { onError("Chaque article doit avoir une taille."); return; }
-    void onSave({ customerName: customerName.trim(), phone: phone.trim(), wilayaCode, commune, address: address.trim(), deliveryType, items: lines });
+    const negotiatedCents = negotiated.trim() ? Math.round(Number(negotiated.trim().replace(",", ".")) * 100) : null;
+    if (negotiatedCents !== null && (!Number.isFinite(negotiatedCents) || negotiatedCents < shipping)) { onError("Le prix négocié doit couvrir au moins la livraison."); return; }
+    void onSave({ customerName: customerName.trim(), phone: phone.trim(), wilayaCode, commune, address: address.trim(), deliveryType, negotiatedTotalCents: negotiatedCents, items: lines });
   }
 
   return <div className="modal-backdrop admin-modal"><section>
@@ -380,8 +386,12 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
       </div>
 
       <div className="checkout-breakdown"><span>Sous-total<b>{money(subtotal)}</b></span><span>Livraison<b>{rate ? money(shipping) : "—"}</b></span></div>
-      <div className="checkout-total"><span>Nouveau total</span><strong>{money(subtotal + shipping)}</strong></div>
-      {order && subtotal + shipping !== order.totalCents && <p className="order-edit-diff">Ancien total : {money(order.totalCents)}</p>}
+      <label className="negotiated-price">Prix total négocié <small>livraison comprise — laissez vide pour garder le tarif catalogue</small>
+        <div className="negotiated-field"><input value={negotiated} onChange={(event) => setNegotiated(event.target.value.replace(/[^\d.,]/g, ""))} inputMode="decimal" placeholder={String(Math.round((subtotal + shipping) / 100))} /><span>DZD</span></div>
+      </label>
+      <div className="checkout-total"><span>{order ? "Nouveau total" : "Total"}</span><strong>{money(effectiveTotal)}</strong></div>
+      {negotiatedCents !== null && negotiatedCents !== subtotal + shipping && <p className="order-edit-diff">Tarif catalogue : {money(subtotal + shipping)} — remise de {money(subtotal + shipping - negotiatedCents)}</p>}
+      {order && effectiveTotal !== order.totalCents && <p className="order-edit-diff">Ancien total : {money(order.totalCents)}</p>}
       <div className="modal-actions"><button type="button" onClick={onClose}>Annuler</button><button className="admin-primary" disabled={busy}>{busy ? "Enregistrement…" : order ? "Enregistrer" : "Créer la commande"}</button></div>
     </form>
   </section></div>;

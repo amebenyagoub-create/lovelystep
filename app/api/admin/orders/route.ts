@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { after } from "next/server";
 import { revalidateTag } from "next/cache";
-import { audit, createOrder, deleteOrder, getDeliveryRate, getProductById, StockUnavailableError, updateOrderDetails, updateOrderStatus, type OrderEditInput } from "@/lib/db-postgres";
+import { audit, createOrder, deleteOrder, getDeliveryRate, getProductById, negotiatedSubtotal, StockUnavailableError, updateOrderDetails, updateOrderStatus, type OrderEditInput } from "@/lib/db-postgres";
 import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
 import { CATALOG_TAG } from "@/lib/public-cache";
 import { findWilaya } from "@/lib/algeria";
@@ -82,6 +82,7 @@ export async function PUT(request: Request) {
       wilayaName: wilaya.nameFr,
       address: String(body.address ?? "").trim(),
       deliveryType: body.deliveryType === "office" ? "office" : "home",
+      negotiatedTotalCents: body.negotiatedTotalCents == null ? null : Number(body.negotiatedTotalCents),
       items: body.items.map((item) => ({
         productId: Number(item.productId),
         size: String(item.size ?? ""),
@@ -159,6 +160,12 @@ export async function POST(request: Request) {
   const rate = await getDeliveryRate(wilaya.code);
   if (!rate) return NextResponse.json({ error: "Wilaya sans tarif de livraison." }, { status: 409 });
   const shippingCents = Math.max(0, Math.round(Number(deliveryType === "office" ? rate.officeCents : rate.homeCents) || 0));
+  // Le prix negocie ecrase le sous-total et non le seul total : la marge et le CPA cible se
+  // lisent sur subtotal + shipping, une remise posee uniquement sur le total serait comptee
+  // comme du benefice.
+  const negotiated = negotiatedSubtotal(body.negotiatedTotalCents, shippingCents, subtotalCents);
+  if (negotiated === "invalid") return NextResponse.json({ error: "Prix négocié invalide : il doit couvrir au moins la livraison." }, { status: 400 });
+  const finalSubtotalCents = negotiated ?? subtotalCents;
 
   try {
     const [firstName, ...rest] = customerName.split(/\s+/);
@@ -168,11 +175,11 @@ export async function POST(request: Request) {
       address: String(body.address ?? "").trim(),
       deliveryType,
       notes: String(body.notes ?? "").trim().slice(0, 500),
-      items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents,
+      items, subtotalCents: finalSubtotalCents, shippingCents, totalCents: finalSubtotalCents + shippingCents,
     });
     revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));
-    await audit(session.adminId, "order.manual_create", "order", String(order.id), { orderNumber: order.orderNumber, totalCents: order.totalCents, items: items.length });
+    await audit(session.adminId, "order.manual_create", "order", String(order.id), { orderNumber: order.orderNumber, totalCents: order.totalCents, items: items.length, catalogueSubtotalCents: subtotalCents, negotiated: finalSubtotalCents !== subtotalCents });
     return NextResponse.json({ ok: true, order });
   } catch (error) {
     if (error instanceof StockUnavailableError) return NextResponse.json({ error: "Stock insuffisant." }, { status: 409 });

@@ -291,6 +291,8 @@ export type OrderEditInput = {
   customerName: string; phone: string;
   wilayaCode: string; wilayaName: string; commune: string; address: string;
   deliveryType: DeliveryType;
+  /** Prix negocie au telephone, livraison comprise. Absent = tarif catalogue. */
+  negotiatedTotalCents?: number | null;
   items: Array<{ productId: number; size: string; color?: string; quantity: number }>;
 };
 export type OrderEditResult =
@@ -321,6 +323,23 @@ export type OrderEditResult =
  * be ignored by deduplication or double-count the conversion. The advertising record stays as
  * it happened, and the store's own totals become the corrected truth.
  */
+/**
+ * Traduit un prix negocie (livraison comprise) en sous-total articles.
+ *
+ * Renvoie null quand rien n'a ete negocie, "invalid" quand le montant ne couvre pas la
+ * livraison ou depasse largement le tarif catalogue — une faute de frappe a un zero de trop
+ * fausserait le chiffre d'affaires et le CPA cible bien plus longtemps qu'elle ne se voit.
+ */
+export function negotiatedSubtotal(value: number | null | undefined, shippingCents: number, catalogueSubtotalCents: number): number | "invalid" | null {
+  if (value == null) return null;
+  const total = Math.round(Number(value));
+  if (!Number.isFinite(total)) return "invalid";
+  if (total === catalogueSubtotalCents + shippingCents) return null;
+  if (total < shippingCents || total <= 0) return "invalid";
+  if (total > (catalogueSubtotalCents + shippingCents) * 3) return "invalid";
+  return total - shippingCents;
+}
+
 export async function updateOrderDetails(id: number, input: OrderEditInput, adminId: number | null): Promise<OrderEditResult> {
   await ensureDatabase();
   if (!Array.isArray(input.items) || input.items.length === 0) return { status: "invalid", reason: "Une commande doit contenir au moins un article." };
@@ -374,7 +393,13 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
     const rateRow = await client.query("SELECT home_cents, office_cents FROM delivery_rates WHERE wilaya_code=$1", [String(input.wilayaCode).padStart(2, "0")]);
     if (!rateRow.rows[0]) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Wilaya inconnue." }; }
     const shippingCents = Number(input.deliveryType === "office" ? rateRow.rows[0].office_cents : rateRow.rows[0].home_cents) || 0;
-    const totalCents = subtotalCents + shippingCents;
+    // Un prix negocie remplace le sous-total, jamais le seul total. La marge, le CPA cible et
+    // la regle KILL/SCALE se calculent sur subtotal + shipping : n'ecraser que totalCents
+    // laisserait le tableau de bord compter la remise comme du benefice.
+    const negotiated = negotiatedSubtotal(input.negotiatedTotalCents, shippingCents, subtotalCents);
+    if (negotiated === "invalid") { await client.query("ROLLBACK"); return { status: "invalid", reason: "Prix negocie invalide : il doit couvrir au moins la livraison." }; }
+    const finalSubtotalCents = negotiated ?? subtotalCents;
+    const totalCents = finalSubtotalCents + shippingCents;
 
     // Le bureau enregistre appartient a une wilaya donnee et au mode « au bureau ». Des que
     // l'un des deux change, le garder enverrait le colis dans un bureau qui n'a plus rien a
@@ -393,7 +418,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
        String(input.wilayaCode).padStart(2, "0"), String(input.wilayaName).slice(0, 80),
        String(input.commune).slice(0, 80), String(input.address).slice(0, 300),
        input.deliveryType === "office" ? "office" : "home",
-       JSON.stringify(items), subtotalCents, shippingCents, totalCents, id, hubId, hubName],
+       JSON.stringify(items), finalSubtotalCents, shippingCents, totalCents, id, hubId, hubName],
     );
     await client.query("COMMIT");
 
@@ -401,7 +426,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
     await syncOrderDeliveryCost(id);
     await audit(adminId, "order.edit", "order", String(id), {
       before: { totalCents: before.totalCents, items: before.items.length, commune: before.commune, phone: before.phone },
-      after: { totalCents, items: items.length, commune: input.commune, phone: input.phone },
+      after: { totalCents, items: items.length, commune: input.commune, phone: input.phone, catalogueSubtotalCents: subtotalCents, negotiated: finalSubtotalCents !== subtotalCents },
     }).catch(() => undefined);
 
     return { status: "updated", order: mapOrder(updated.rows[0]) };
