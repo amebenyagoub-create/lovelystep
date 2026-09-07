@@ -92,7 +92,12 @@ export async function POST(request: Request) {
   const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
   const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
-  const shippingCents = Number.isFinite(rawShippingCents) && rawShippingCents > 0 ? Math.round(rawShippingCents) : 0;
+  // Un tarif a zero n'est pas une livraison offerte, c'est un tarif jamais renseigne : la
+  // commande partirait avec une livraison payee a ZR mais facturee a personne.
+  if (!Number.isFinite(rawShippingCents) || rawShippingCents <= 0) {
+    return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
+  }
+  const shippingCents = Math.round(rawShippingCents);
   try {
     // Le bureau vient du navigateur : on le reconfronte a la liste reelle de la wilaya avant
     // de l'ecrire. Un identifiant inconnu, ou ZR injoignable, laisse simplement le champ vide

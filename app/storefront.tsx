@@ -54,6 +54,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [checkout, setCheckout] = useState<CheckoutState>(emptyCheckout);
   const [hubs, setHubs] = useState<PickupHub[] | null>(null);
+  const [hubsDown, setHubsDown] = useState(false);
   const cartLoaded = useRef(false);
 
   const money = (cents: number) => new Intl.NumberFormat(locale === "ar" ? "ar-DZ" : locale === "en" ? "en-DZ" : "fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
@@ -83,28 +84,50 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   // rester selectionne. Le drapeau cancelled evite qu'une reponse lente d'une wilaya
   // precedente ecrase la liste de la wilaya courante.
   useEffect(() => {
-    if (checkout.deliveryType !== "office" || !checkout.wilayaCode) { setHubs(null); return; }
+    if (!checkout.wilayaCode) { setHubs(null); setHubsDown(false); return; }
     let cancelled = false;
     setHubs(null);
+    setHubsDown(false);
     void fetch(`/api/delivery/hubs?wilaya=${encodeURIComponent(checkout.wilayaCode)}`, { cache: "no-store" })
       .then((response) => response.json())
       .then((value) => {
         if (cancelled) return;
         const list = Array.isArray(value.hubs) ? value.hubs as PickupHub[] : [];
         setHubs(list);
+        setHubsDown(value.unavailable === true);
         // Un seul bureau dans la wilaya : le choix n'apporte rien, on le pose d'office.
         if (list.length === 1) setCheckout((state) => ({ ...state, deliveryHubId: list[0].id }));
       })
-      .catch(() => { if (!cancelled) setHubs([]); });
+      .catch(() => { if (!cancelled) { setHubs([]); setHubsDown(true); } });
     return () => { cancelled = true; };
-  }, [checkout.deliveryType, checkout.wilayaCode]);
+  }, [checkout.wilayaCode]);
   useEffect(() => { void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "/" }) }).catch(() => undefined); }, []);
 
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
   const subtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const categories = [...new Set(products.map((product) => product.category))];
-  const selectedWilaya = wilayas.find((wilaya) => wilaya.code === checkout.wilayaCode);
-  const selectedRate = deliveryRates.find((rate) => rate.wilayaCode === checkout.wilayaCode && rate.active);
+  // Un tarif a zero veut dire « pas encore fixe », pas « livraison gratuite ». Ces wilayas
+  // sortent donc de la liste : les proposer laissait passer des commandes ou la livraison
+  // n'etait facturee a personne alors qu'elle est bien payee a ZR.
+  const rateOf = (code: string) => deliveryRates.find((rate) => rate.wilayaCode === code && rate.active);
+  const priced = (rate: DeliveryRate | undefined, type: DeliveryType) => Boolean(rate && (type === "office" ? rate.officeCents : rate.homeCents) > 0);
+  const availableWilayas = wilayas.filter((wilaya) => { const rate = rateOf(wilaya.code); return priced(rate, "home") || priced(rate, "office"); });
+  const selectedWilaya = availableWilayas.find((wilaya) => wilaya.code === checkout.wilayaCode);
+  const selectedRate = rateOf(checkout.wilayaCode);
+  const homeAvailable = priced(selectedRate, "home");
+  // Dix-sept wilayas n'ont aucun bureau ZR. Y proposer « au bureau » produisait une commande
+  // que l'expedition ne pouvait pas router. Tant que la liste charge, ou si ZR est injoignable,
+  // on laisse l'option : mieux vaut une commande a verifier qu'un mode retire a tort.
+  const officeAvailable = priced(selectedRate, "office") && (hubs === null || hubsDown || hubs.length > 0);
+  // Changer de wilaya peut retirer le mode deja coche : sans ce recalage, le client resterait
+  // sur « au bureau » dans une wilaya ou seul le domicile est tarife, et le total afficherait
+  // une livraison a zero.
+  useEffect(() => {
+    if (!selectedRate) return;
+    if (checkout.deliveryType === "office" && !officeAvailable && homeAvailable) setCheckout((state) => ({ ...state, deliveryType: "home", deliveryHubId: "" }));
+    if (checkout.deliveryType === "home" && !homeAvailable && officeAvailable) setCheckout((state) => ({ ...state, deliveryType: "office" }));
+  }, [selectedRate, homeAvailable, officeAvailable, checkout.deliveryType]);
+  useEffect(() => { if (!officeAvailable && checkout.deliveryHubId) setCheckout((state) => ({ ...state, deliveryHubId: "" })); }, [officeAvailable, checkout.deliveryHubId]);
   const regularShipping = selectedRate ? (checkout.deliveryType === "office" ? selectedRate.officeCents : selectedRate.homeCents) : 0;
   const shipping = selectedRate ? Math.max(0, Math.round(regularShipping)) : 0;
   const deliveryText = deliveryCopy[locale];
@@ -211,8 +234,8 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" inputMode="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
-        <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "", deliveryHubId: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
-        <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend><label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home", deliveryHubId: "" })} /> <Icon name="truck" /> <span>{t("home")}</span>{selectedRate && <b>{money(selectedRate.homeCents)}</b>}</label><label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> <span>{t("office")}</span>{selectedRate && <b>{money(selectedRate.officeCents)}</b>}</label></fieldset>
+        <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "", deliveryHubId: "" })} required><option value="">{t("choose")}</option>{availableWilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
+        <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend>{(!selectedRate || homeAvailable) && <label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home", deliveryHubId: "" })} /> <Icon name="truck" /> <span>{t("home")}</span>{selectedRate && <b>{money(selectedRate.homeCents)}</b>}</label>}{(!selectedRate || officeAvailable) && <label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> <span>{t("office")}</span>{selectedRate && <b>{money(selectedRate.officeCents)}</b>}</label>}</fieldset>
         {checkout.deliveryType === "office" && checkout.wilayaCode && (
           hubs === null
             ? <p className="hub-note">{deliveryText.hubLoading}</p>

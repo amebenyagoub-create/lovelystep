@@ -122,13 +122,18 @@ export type ZrPickupHub = { id: string; name: string; district: string };
  * devine a l'expedition par resolvePickupHub(), qui echoue quand plusieurs bureaux partagent
  * la commune : la commande etait deja prise, et le probleme n'apparaissait qu'au dispatch.
  */
-export async function listZrExpressPickupHubs(keyword: string): Promise<ZrPickupHub[]> {
+async function searchHubPage(keyword: string, pageNumber: number): Promise<unknown[]> {
   const payload = await zrRequest("/api/v1/hubs/search", {
     method: "POST",
-    body: JSON.stringify({ keyword: String(keyword).slice(0, 80), pageSize: 100, pageNumber: 1, includeServices: false }),
+    body: JSON.stringify({ keyword: String(keyword).slice(0, 80), pageSize: HUB_PAGE_SIZE, pageNumber, includeServices: false }),
   });
   const nested = record(payload.data);
-  const values = Array.isArray(payload.items) ? payload.items : Array.isArray(nested.items) ? nested.items : [];
+  return Array.isArray(payload.items) ? payload.items : Array.isArray(nested.items) ? nested.items : [];
+}
+
+const HUB_PAGE_SIZE = 100;
+
+function toPickupHubs(values: unknown[]): ZrPickupHub[] {
   const seen = new Set<string>();
   return values
     .map(hub)
@@ -136,6 +141,29 @@ export async function listZrExpressPickupHubs(keyword: string): Promise<ZrPickup
     .filter((value) => { if (seen.has(value.id)) return false; seen.add(value.id); return true; })
     .map((value) => ({ id: value.id, name: value.name, district: value.address.district }))
     .sort((first, second) => first.district.localeCompare(second.district, "fr") || first.name.localeCompare(second.name, "fr"));
+}
+
+export async function listZrExpressPickupHubs(keyword: string): Promise<ZrPickupHub[]> {
+  return toPickupHubs(await searchHubPage(keyword, 1));
+}
+
+/**
+ * Tous les bureaux de retrait ZR Express, toutes wilayas confondues.
+ *
+ * La recherche par mot-cle porte sur le bureau lui-meme, pas sur la wilaya : a Alger ou Oran
+ * les bureaux portent le nom de leur commune (Bab Ezzouar, Bir El Djir...), donc chercher
+ * « Alger » ne renvoyait rien et le selecteur restait vide. On recupere donc la liste entiere
+ * une fois, et le tri par wilaya se fait chez nous a partir des communes connues.
+ */
+export async function listAllZrExpressPickupHubs(): Promise<ZrPickupHub[]> {
+  const collected: unknown[] = [];
+  // Borne dure : une pagination qui ne se termine pas ne doit pas boucler contre ZR.
+  for (let pageNumber = 1; pageNumber <= 20; pageNumber += 1) {
+    const page = await searchHubPage("", pageNumber);
+    collected.push(...page);
+    if (page.length < HUB_PAGE_SIZE) break;
+  }
+  return toPickupHubs(collected);
 }
 
 async function resolvePickupHub(order: Order, districtTerritoryId: string) {
