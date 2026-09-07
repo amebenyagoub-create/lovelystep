@@ -16,9 +16,9 @@ import { useLocale } from "@/lib/use-locale";
 const CART_KEY = "lovelystep_cart";
 
 const deliveryCopy = {
-  fr: { basedOnWilaya: "Selon la wilaya" },
-  en: { basedOnWilaya: "Based on wilaya" },
-  ar: { basedOnWilaya: "حسب الولاية" },
+  fr: { basedOnWilaya: "Selon la wilaya", hub: "Bureau ZR Express", hubChoose: "Choisir un bureau", hubLoading: "Chargement des bureaux…", hubEmpty: "Aucun bureau listé pour cette wilaya. Nous vous appellerons pour le confirmer." },
+  en: { basedOnWilaya: "Based on wilaya", hub: "ZR Express desk", hubChoose: "Choose a desk", hubLoading: "Loading desks…", hubEmpty: "No desk listed for this wilaya. We will confirm it with you by phone." },
+  ar: { basedOnWilaya: "حسب الولاية", hub: "مكتب ZR Express", hubChoose: "اختر مكتبا", hubLoading: "جارٍ تحميل المكاتب…", hubEmpty: "لا يوجد مكتب مدرج لهذه الولاية. سنؤكد معك عبر الهاتف." },
 } as const;
 
 function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "heart" | "shield" | "arrow" | "user" }) {
@@ -26,8 +26,9 @@ function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "h
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 }
 
-type CheckoutState = { fullName: string; phone: string; wilayaCode: string; commune: string; deliveryType: DeliveryType; notes: string };
-const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", commune: "", deliveryType: "home", notes: "" };
+type CheckoutState = { fullName: string; phone: string; wilayaCode: string; commune: string; deliveryType: DeliveryType; deliveryHubId: string; notes: string };
+const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", commune: "", deliveryType: "home", deliveryHubId: "", notes: "" };
+type PickupHub = { id: string; name: string; district: string };
 
 function trackCheckout(items: CartItem[]) {
   trackMeta("InitiateCheckout", {
@@ -52,6 +53,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [checkout, setCheckout] = useState<CheckoutState>(emptyCheckout);
+  const [hubs, setHubs] = useState<PickupHub[] | null>(null);
   const cartLoaded = useRef(false);
 
   const money = (cents: number) => new Intl.NumberFormat(locale === "ar" ? "ar-DZ" : locale === "en" ? "en-DZ" : "fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
@@ -76,6 +78,26 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => { if (cartLoaded.current) localStorage.setItem(CART_KEY, JSON.stringify(cart)); }, [cart]);
+  // Les bureaux ne sont demandes qu'au moment ou le client choisit « au bureau », et
+  // reinterroges a chaque changement de wilaya : un bureau d'une autre wilaya ne doit jamais
+  // rester selectionne. Le drapeau cancelled evite qu'une reponse lente d'une wilaya
+  // precedente ecrase la liste de la wilaya courante.
+  useEffect(() => {
+    if (checkout.deliveryType !== "office" || !checkout.wilayaCode) { setHubs(null); return; }
+    let cancelled = false;
+    setHubs(null);
+    void fetch(`/api/delivery/hubs?wilaya=${encodeURIComponent(checkout.wilayaCode)}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((value) => {
+        if (cancelled) return;
+        const list = Array.isArray(value.hubs) ? value.hubs as PickupHub[] : [];
+        setHubs(list);
+        // Un seul bureau dans la wilaya : le choix n'apporte rien, on le pose d'office.
+        if (list.length === 1) setCheckout((state) => ({ ...state, deliveryHubId: list[0].id }));
+      })
+      .catch(() => { if (!cancelled) setHubs([]); });
+    return () => { cancelled = true; };
+  }, [checkout.deliveryType, checkout.wilayaCode]);
   useEffect(() => { void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "/" }) }).catch(() => undefined); }, []);
 
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -189,8 +211,15 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" inputMode="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
-        <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
-        <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend><label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home" })} /> <Icon name="truck" /> <span>{t("home")}</span>{selectedRate && <b>{money(selectedRate.homeCents)}</b>}</label><label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> <span>{t("office")}</span>{selectedRate && <b>{money(selectedRate.officeCents)}</b>}</label></fieldset>
+        <div className="form-row"><label>{t("wilaya")}<select value={checkout.wilayaCode} onChange={(event) => setCheckout({ ...checkout, wilayaCode: event.target.value, commune: "", deliveryHubId: "" })} required><option value="">{t("choose")}</option>{wilayas.map((wilaya) => <option key={wilaya.code} value={wilaya.code}>{wilaya.code} · {locale === "ar" ? wilaya.nameAr : wilaya.nameFr}</option>)}</select></label><label>{t("commune")}<select value={checkout.commune} onChange={(event) => setCheckout({ ...checkout, commune: event.target.value })} required disabled={!selectedWilaya}><option value="">{t("choose")}</option>{selectedWilaya?.communes.map((commune) => <option key={commune.code} value={commune.nameFr}>{locale === "ar" ? commune.nameAr : commune.nameFr}</option>)}</select></label></div>
+        <fieldset className="delivery-choice"><legend>{t("deliveryMode")}</legend><label><input type="radio" checked={checkout.deliveryType === "home"} onChange={() => setCheckout({ ...checkout, deliveryType: "home", deliveryHubId: "" })} /> <Icon name="truck" /> <span>{t("home")}</span>{selectedRate && <b>{money(selectedRate.homeCents)}</b>}</label><label><input type="radio" checked={checkout.deliveryType === "office"} onChange={() => setCheckout({ ...checkout, deliveryType: "office" })} /> <Icon name="shield" /> <span>{t("office")}</span>{selectedRate && <b>{money(selectedRate.officeCents)}</b>}</label></fieldset>
+        {checkout.deliveryType === "office" && checkout.wilayaCode && (
+          hubs === null
+            ? <p className="hub-note">{deliveryText.hubLoading}</p>
+            : hubs.length === 0
+              ? <p className="hub-note">{deliveryText.hubEmpty}</p>
+              : <label>{deliveryText.hub}<select value={checkout.deliveryHubId} onChange={(event) => setCheckout({ ...checkout, deliveryHubId: event.target.value })} required><option value="">{deliveryText.hubChoose}</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.district ? `${hub.district} · ${hub.name}` : hub.name}</option>)}</select></label>
+        )}
         {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{selectedRate ? t("orderHelp") : t("chooseWilayaFirst")}</small>
       </form>}
     </section></div>}

@@ -91,6 +91,8 @@ db.exec(`
     commune TEXT NOT NULL DEFAULT '',
     address TEXT NOT NULL,
     delivery_type TEXT NOT NULL DEFAULT 'home',
+    delivery_hub_id TEXT,
+    delivery_hub_name TEXT,
     delivery_external_id TEXT,
     delivery_sync_status TEXT NOT NULL DEFAULT 'not_configured',
     delivery_sync_error TEXT,
@@ -211,6 +213,8 @@ ensureColumn("orders", "wilaya_code", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("orders", "wilaya_name", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("orders", "commune", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("orders", "delivery_type", "TEXT NOT NULL DEFAULT 'home'");
+ensureColumn("orders", "delivery_hub_id", "TEXT");
+ensureColumn("orders", "delivery_hub_name", "TEXT");
 ensureColumn("orders", "delivery_external_id", "TEXT");
 ensureColumn("orders", "delivery_sync_status", "TEXT NOT NULL DEFAULT 'not_configured'");
 ensureColumn("orders", "delivery_sync_error", "TEXT");
@@ -371,6 +375,8 @@ function mapOrder(row: Row): Order {
     firstName: String(row.first_name ?? "") || nameParts[0] || "", lastName: String(row.last_name ?? "") || nameParts.slice(1).join(" "), customerName,
     phone: String(row.phone), city: String(row.city), wilayaCode: String(row.wilaya_code ?? ""), wilayaName: String(row.wilaya_name ?? row.city ?? ""), commune: String(row.commune ?? row.city ?? ""),
     address: String(row.address), deliveryType: (row.delivery_type === "office" ? "office" : "home") as DeliveryType,
+    deliveryHubId: row.delivery_hub_id == null ? null : String(row.delivery_hub_id),
+    deliveryHubName: row.delivery_hub_name == null ? null : String(row.delivery_hub_name),
     deliveryExternalId: row.delivery_external_id == null ? null : String(row.delivery_external_id),
     deliverySyncStatus: String(row.delivery_sync_status ?? "not_configured") as Order["deliverySyncStatus"],
     deliverySyncError: row.delivery_sync_error == null ? null : String(row.delivery_sync_error),
@@ -445,6 +451,8 @@ type CreateOrderInput = {
   commune: string;
   address: string;
   deliveryType: DeliveryType;
+  deliveryHubId?: string | null;
+  deliveryHubName?: string | null;
   notes: string;
   items: OrderItem[];
   subtotalCents: number;
@@ -456,8 +464,8 @@ export function createOrder(input: CreateOrderInput): Order {
   return db.transaction(() => {
     changeStock(input.items, -1);
     const orderNumber = `LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-    const result = db.prepare(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,1)`).run(orderNumber,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents);
+    const result = db.prepare(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,1)`).run(orderNumber,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId ?? null,input.deliveryHubName ?? null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents);
     return mapOrder(db.prepare("SELECT * FROM orders WHERE id=?").get(result.lastInsertRowid) as Row);
   })();
 }

@@ -101,6 +101,9 @@ export type Order = {
   commune: string;
   address: string;
   deliveryType: DeliveryType;
+  /** Bureau ZR choisi par le client quand deliveryType vaut "office". Devine a l'expedition si absent. */
+  deliveryHubId: string | null;
+  deliveryHubName: string | null;
   deliveryExternalId: string | null;
   deliverySyncStatus: "not_configured" | "pending" | "sent" | "failed";
   deliverySyncError: string | null;

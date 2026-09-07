@@ -9,6 +9,7 @@ import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
 import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
+import { resolveSubmittedHub } from "@/lib/pickup-hubs";
 import { metaRequestContext } from "@/lib/meta/request";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
   if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
   if (!await allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
-  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; address?: string; notes?: string; locale?: "fr" | "en" | "ar"; items?: RequestItem[]; attribution?: unknown };
+  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; deliveryHubId?: string; address?: string; notes?: string; locale?: "fr" | "en" | "ar"; items?: RequestItem[]; attribution?: unknown };
   const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
   const nameParts = submittedName.split(" ").filter(Boolean);
   const firstName = String(body.firstName ?? nameParts.shift() ?? "").trim().slice(0, 80);
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
   const wilayaCode = String(body.wilayaCode ?? "").padStart(2, "0");
   const commune = String(body.commune ?? "").trim().slice(0, 120);
   const deliveryType: DeliveryType = body.deliveryType === "office" ? "office" : "home";
+  const submittedHubId = deliveryType === "office" ? String(body.deliveryHubId ?? "").trim().slice(0, 80) : "";
   const wilaya = validAlgeriaAddress(wilayaCode, commune);
   const address = "";
   const notes = String(body.notes ?? "").trim().slice(0, 500);
@@ -92,8 +94,12 @@ export async function POST(request: Request) {
   const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
   const shippingCents = Number.isFinite(rawShippingCents) && rawShippingCents > 0 ? Math.round(rawShippingCents) : 0;
   try {
+    // Le bureau vient du navigateur : on le reconfronte a la liste reelle de la wilaya avant
+    // de l'ecrire. Un identifiant inconnu, ou ZR injoignable, laisse simplement le champ vide
+    // et l'expedition retombe sur la resolution automatique d'avant.
+    const hub = submittedHubId ? await resolveSubmittedHub(wilayaCode, wilaya.nameFr, submittedHubId) : null;
     const customer = await getCustomerSession();
-    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hub?.id ?? null, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;

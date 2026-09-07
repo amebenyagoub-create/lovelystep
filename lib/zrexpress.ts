@@ -113,6 +113,31 @@ function hub(value: unknown): ZrHub | null {
   };
 }
 
+export type ZrPickupHub = { id: string; name: string; district: string };
+
+/**
+ * Bureaux de retrait ZR Express correspondant a un mot-cle (nom de wilaya ou de commune).
+ *
+ * Sert au choix du bureau par le client au moment de la commande. Jusqu'ici le bureau etait
+ * devine a l'expedition par resolvePickupHub(), qui echoue quand plusieurs bureaux partagent
+ * la commune : la commande etait deja prise, et le probleme n'apparaissait qu'au dispatch.
+ */
+export async function listZrExpressPickupHubs(keyword: string): Promise<ZrPickupHub[]> {
+  const payload = await zrRequest("/api/v1/hubs/search", {
+    method: "POST",
+    body: JSON.stringify({ keyword: String(keyword).slice(0, 80), pageSize: 100, pageNumber: 1, includeServices: false }),
+  });
+  const nested = record(payload.data);
+  const values = Array.isArray(payload.items) ? payload.items : Array.isArray(nested.items) ? nested.items : [];
+  const seen = new Set<string>();
+  return values
+    .map(hub)
+    .filter((value): value is ZrHub => value !== null && value.isPickupPoint)
+    .filter((value) => { if (seen.has(value.id)) return false; seen.add(value.id); return true; })
+    .map((value) => ({ id: value.id, name: value.name, district: value.address.district }))
+    .sort((first, second) => first.district.localeCompare(second.district, "fr") || first.name.localeCompare(second.name, "fr"));
+}
+
 async function resolvePickupHub(order: Order, districtTerritoryId: string) {
   const payload = await zrRequest("/api/v1/hubs/search", {
     method: "POST",
@@ -144,7 +169,11 @@ function defaultWeightKg() {
 
 export async function createZrExpressParcel(order: Order): Promise<{ id: string }> {
   const territoryIds = await resolveTerritories(order);
-  const hubId = order.deliveryType === "office" ? await resolvePickupHub(order, territoryIds.districtTerritoryId) : undefined;
+  // Le bureau choisi par le client a la commande fait foi. resolvePickupHub ne sert plus que
+  // de repli pour les commandes prises avant ce choix, ou saisies a la main sans bureau.
+  const hubId = order.deliveryType === "office"
+    ? (validUuid(order.deliveryHubId ?? "") ? String(order.deliveryHubId) : await resolvePickupHub(order, territoryIds.districtTerritoryId))
+    : undefined;
   const payload = await zrRequest("/api/v1/parcels", {
     method: "POST",
     body: JSON.stringify(buildZrParcelPayload(order, territoryIds, defaultWeightKg(), crypto.randomUUID(), hubId)),

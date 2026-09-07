@@ -377,6 +377,10 @@ ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS carrier_office_cents BIGINT 
 -- across every wilaya and both delivery types; per-wilaya so it stays changeable if that ends.
 ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS return_cost_cents BIGINT NOT NULL DEFAULT 15000 CHECK(return_cost_cents >= 0);
 
+-- Bureau de retrait choisi par le client. Sans lui, createZrExpressParcel devine le bureau a
+-- partir de la commune et echoue quand plusieurs bureaux la partagent -- apres la commande.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_name TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;
 
 -- Durable outbox for the Google Sheet export. The agent only sees an order once
