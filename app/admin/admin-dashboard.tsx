@@ -24,7 +24,7 @@ export default function AdminDashboard() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
-  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [editingOrder, setEditingOrder] = useState<Order | "new" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -118,14 +118,20 @@ export default function AdminDashboard() {
       {tab === "analytics" && <AnalyticsPanel />}
       {tab === "campaigns" && <CampaignIntelligencePanel csrfToken={data.csrfToken} />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
-      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><div className="orders-actions"><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
+      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button><button disabled={busy || product.status !== "published"} title={product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
       {tab === "store" && <StorefrontEditor settings={data.storeSettings} images={[...new Set(data.products.flatMap((product) => product.images))]} csrfToken={data.csrfToken} busy={busy} onError={setError} onSave={async (settings) => { const value = await jsonRequest("/api/admin/store-settings", { method: "POST", body: JSON.stringify(settings) }); if (value) setNotice("Façade de la boutique mise à jour."); }} />}
       {tab === "delivery" && <DeliveryEditor rates={data.deliveryRates} zrExpress={data.zrExpress} busy={busy} onSyncZrExpress={async () => { const value = await jsonRequest("/api/admin/delivery/sync-zrexpress", { method: "POST" }); if (!value) return null; setNotice(`${value.syncedWilayas} wilaya(s) synchronisée(s) depuis ZR Express.`); return value.rates as DeliveryRate[]; }} onSaveRates={async (rates) => { const value = await jsonRequest("/api/admin/delivery", { method: "POST", body: JSON.stringify({ rates }) }); if (value) setNotice("Tarifs de livraison enregistrés."); }} />}
     </main>
     <nav className="admin-mobile-bottom-nav" aria-label="Navigation principale">{navigation.filter(([value]) => primaryMobileTabs.includes(value)).map(([value, label, icon]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => selectTab(value)}><span>{icon}</span><small>{value === "overview" ? "Accueil" : label}</small>{value === "orders" && data.stats.newOrders > 0 && <b>{data.stats.newOrders}</b>}</button>)}<button className={!primaryMobileTabs.includes(tab) ? "active" : ""} onClick={() => setMobileMenuOpen(true)}><span>•••</span><small>Plus</small></button></nav>
     {mobileMenuOpen && <div className="admin-mobile-menu-overlay"><button className="admin-mobile-menu-backdrop" aria-label="Fermer le menu" onClick={() => setMobileMenuOpen(false)} /><section className="admin-mobile-more-menu" role="dialog" aria-modal="true" aria-label="Plus de rubriques"><header><div><span className="admin-kicker">Navigation</span><h2>Plus d’outils</h2></div><button aria-label="Fermer" onClick={() => setMobileMenuOpen(false)}>×</button></header><nav>{navigation.filter(([value]) => !primaryMobileTabs.includes(value)).map(([value, label, icon]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => selectTab(value)}><span>{icon}</span><strong>{label}</strong><i>›</i></button>)}</nav><footer><small>{data.admin.email}</small><button onClick={logout}>Se déconnecter</button></footer></section></div>}
-    {editingOrder && <OrderEditor order={editingOrder} products={data.products} deliveryRates={data.deliveryRates} busy={busy} onError={setError} onClose={() => setEditingOrder(null)} onSave={async (body) => { const value = await jsonRequest("/api/admin/orders", { method: "PUT", body: JSON.stringify({ id: editingOrder.id, ...body }) }); if (value) { setEditingOrder(null); setNotice("Commande modifiée. Le stock et l\u2019export Sheets ont été mis à jour."); } }} />}
+    {editingOrder && <OrderEditor order={editingOrder === "new" ? null : editingOrder} products={data.products} deliveryRates={data.deliveryRates} busy={busy} onError={setError} onClose={() => setEditingOrder(null)} onSave={async (body) => {
+      const creating = editingOrder === "new";
+      const value = await jsonRequest("/api/admin/orders", creating
+        ? { method: "POST", body: JSON.stringify(body) }
+        : { method: "PUT", body: JSON.stringify({ id: editingOrder.id, ...body }) });
+      if (value) { setEditingOrder(null); setNotice(creating ? "Commande créée. Elle n\u2019est pas rattachée à une campagne Meta." : "Commande modifiée. Le stock et l\u2019export Sheets ont été mis à jour."); }
+    }} />}
     {editing && <ProductEditor product={editing === "new" ? null : editing} busy={busy} csrfToken={data.csrfToken} onError={setError} onClose={() => setEditing(null)} onSave={async (body) => { const value = await jsonRequest("/api/admin/products", { method: "POST", body: JSON.stringify(body) }); if (value) { setEditing(null); const automation = value.metaAutomation as { catalog?: boolean; pagePost?: boolean; instagramPost?: boolean } | undefined; setNotice(automation?.pagePost && automation?.instagramPost ? "Produit enregistré. Publications Facebook et Instagram programmées." : automation?.instagramPost ? "Produit enregistré. Publication Instagram programmée." : automation?.pagePost ? "Produit enregistré. Publication Facebook programmée." : automation?.catalog ? "Produit enregistré. Synchronisation du catalogue programmée." : "Produit enregistré."); } }} />}
   </div>;
 }
@@ -244,7 +250,11 @@ function OrdersTable({ orders, onEdit, onStatus, onDelete, onDispatch, onRetrySh
 type OrderEditLine = { productId: number; size: string; color: string; quantity: number };
 
 /**
- * Corrects an existing order: who it goes to, where, and what is in it.
+ * Creates or corrects an order: who it goes to, where, and what is in it.
+ *
+ * `order === null` is the manual-order case — a sale taken by phone, WhatsApp or DM. It is
+ * saved exactly like a storefront order except that no Meta attribution and no Purchase event
+ * are produced, because no ad brought it in.
  *
  * The form sends no money. Prices come from the catalogue server-side, so the totals shown here
  * are a preview computed from the same inputs, not a value the server will trust.
@@ -252,17 +262,17 @@ type OrderEditLine = { productId: number; size: string; color: string; quantity:
  * Communes are fetched per wilaya rather than bundled: the full list is 575 KB.
  */
 function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, onSave }: {
-  order: Order; products: Product[]; deliveryRates: DeliveryRate[]; busy: boolean;
+  order: Order | null; products: Product[]; deliveryRates: DeliveryRate[]; busy: boolean;
   onError: (message: string) => void; onClose: () => void;
   onSave: (body: { customerName: string; phone: string; wilayaCode: string; commune: string; address: string; deliveryType: Order["deliveryType"]; items: OrderEditLine[] }) => Promise<void>;
 }) {
-  const [customerName, setCustomerName] = useState(order.customerName);
-  const [phone, setPhone] = useState(order.phone);
-  const [wilayaCode, setWilayaCode] = useState(order.wilayaCode);
-  const [commune, setCommune] = useState(order.commune);
-  const [address, setAddress] = useState(order.address ?? "");
-  const [deliveryType, setDeliveryType] = useState<Order["deliveryType"]>(order.deliveryType);
-  const [lines, setLines] = useState<OrderEditLine[]>(order.items.map((item) => ({ productId: item.productId, size: item.size, color: item.color ?? "", quantity: item.quantity })));
+  const [customerName, setCustomerName] = useState(order?.customerName ?? "");
+  const [phone, setPhone] = useState(order?.phone ?? "");
+  const [wilayaCode, setWilayaCode] = useState(order?.wilayaCode ?? (deliveryRates[0]?.wilayaCode ?? ""));
+  const [commune, setCommune] = useState(order?.commune ?? "");
+  const [address, setAddress] = useState(order?.address ?? "");
+  const [deliveryType, setDeliveryType] = useState<Order["deliveryType"]>(order?.deliveryType ?? "home");
+  const [lines, setLines] = useState<OrderEditLine[]>((order?.items ?? []).map((item) => ({ productId: item.productId, size: item.size, color: item.color ?? "", quantity: item.quantity })));
   const [communes, setCommunes] = useState<string[]>([]);
 
   useEffect(() => {
@@ -275,7 +285,9 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
     return () => { cancelled = true; };
   }, [wilayaCode]);
 
-  const published = useMemo(() => products.filter((product) => product.status === "published" || order.items.some((item) => item.productId === product.id)), [products, order.items]);
+  // A discontinued product stays selectable on an order that already contains it, so an edit
+  // never silently drops a line the customer actually bought.
+  const published = useMemo(() => products.filter((product) => product.status === "published" || (order?.items ?? []).some((item) => item.productId === product.id)), [products, order]);
   const productOf = (id: number) => published.find((product) => product.id === id) ?? null;
   const colorsOf = (product: Product | null) => product ? (product.colors.length ? product.colors : (product.color ? [product.color] : [""])) : [""];
   const sizesOf = (product: Product | null, color: string) => {
@@ -298,9 +310,11 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
 
   return <div className="modal-backdrop admin-modal"><section>
     <button type="button" className="modal-x" aria-label="Fermer" onClick={onClose}>×</button>
-    <span className="admin-kicker">Commande {order.orderNumber}</span>
-    <h2>Modifier la commande</h2>
-    <p className="order-edit-note">Le stock est ajusté automatiquement et la ligne Google Sheets est réexportée. L’événement Purchase déjà envoyé à Meta n’est pas modifié : il garde la valeur au moment de la vente.</p>
+    <span className="admin-kicker">{order ? `Commande ${order.orderNumber}` : "Vente hors boutique"}</span>
+    <h2>{order ? "Modifier la commande" : "Nouvelle commande"}</h2>
+    <p className="order-edit-note">{order
+      ? "Le stock est ajusté automatiquement et la ligne Google Sheets est réexportée. L’événement Purchase déjà envoyé à Meta n’est pas modifié : il garde la valeur au moment de la vente."
+      : "Pour une commande prise par téléphone, WhatsApp ou Instagram. Le stock est réservé et la ligne part vers Google Sheets et ZR Express comme une commande normale. Aucune attribution Meta et aucun événement Purchase : la campagne ne doit pas être créditée d’une vente qu’elle n’a pas amenée."}</p>
     <form onSubmit={submit}>
       <div className="form-row"><label>Nom du client<input value={customerName} onChange={(event) => setCustomerName(event.target.value)} required minLength={3} /></label><label>Téléphone<input value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" inputMode="tel" required /></label></div>
       <div className="form-row"><label>Wilaya<select value={wilayaCode} onChange={(event) => { setWilayaCode(event.target.value); setCommune(""); }} required>{deliveryRates.map((item) => <option key={item.wilayaCode} value={item.wilayaCode}>{item.wilayaCode} · {item.wilayaNameFr}</option>)}</select></label><label>Commune<select value={commune} onChange={(event) => setCommune(event.target.value)} required disabled={!communes.length}><option value="">{communes.length ? "Choisir…" : "Chargement…"}</option>{communes.map((name) => <option key={name} value={name}>{name}</option>)}</select></label></div>
@@ -325,8 +339,8 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
 
       <div className="checkout-breakdown"><span>Sous-total<b>{money(subtotal)}</b></span><span>Livraison<b>{rate ? money(shipping) : "—"}</b></span></div>
       <div className="checkout-total"><span>Nouveau total</span><strong>{money(subtotal + shipping)}</strong></div>
-      {subtotal + shipping !== order.totalCents && <p className="order-edit-diff">Ancien total : {money(order.totalCents)}</p>}
-      <div className="modal-actions"><button type="button" onClick={onClose}>Annuler</button><button className="admin-primary" disabled={busy}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
+      {order && subtotal + shipping !== order.totalCents && <p className="order-edit-diff">Ancien total : {money(order.totalCents)}</p>}
+      <div className="modal-actions"><button type="button" onClick={onClose}>Annuler</button><button className="admin-primary" disabled={busy}>{busy ? "Enregistrement…" : order ? "Enregistrer" : "Créer la commande"}</button></div>
     </form>
   </section></div>;
 }
