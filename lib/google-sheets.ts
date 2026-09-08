@@ -300,6 +300,30 @@ export async function clearOrderRowsFromGoogleSheet(apply = false): Promise<{ sp
   return { ...config, rows, cleared: apply };
 }
 
+/**
+ * Ecrit la commande sur une ligne calculee, sans passer par :append.
+ *
+ * :append ne recoit pas une destination mais une plage ou Google DEVINE le tableau, puis
+ * ecrit a partir du bord gauche de ce qu'il a devine. Sur cette feuille il s'est trompe :
+ * des commandes sont parties en colonne M au lieu de A. L'agent de confirmation cherche le
+ * numero de commande en colonne A ; une ligne decalee lui est invisible, le client n'est
+ * jamais appele, et la commande est perdue sans qu'aucune erreur ne soit levee.
+ *
+ * On calcule donc nous-memes la premiere ligne libre et on ecrit dessus. Une ligne est
+ * consideree occupee des qu'UNE cellule de A a BZ contient quelque chose : les colonnes de
+ * l'agent comptent, sinon une ligne qu'il a creee se ferait ecraser. La ligne 2 vide de cette
+ * feuille reste vide, on ecrit apres la derniere ligne occupee.
+ */
+async function nextFreeRow(config: SheetsConfig): Promise<number> {
+  const grid = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:BZ"));
+  const rows = grid.values ?? [];
+  let lastOccupied = 1;
+  rows.forEach((row, index) => {
+    if (row?.some((cell) => String(cell ?? "").trim())) lastOccupied = index + 2;
+  });
+  return lastOccupied + 1;
+}
+
 export async function appendOrderToGoogleSheet(order: Order): Promise<"appended" | "already_exists" | "disabled"> {
   const config = sheetsConfig();
   if (!config) return "disabled";
@@ -308,12 +332,23 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
   const orderNumbers = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:A"));
   if (orderNumbers.values?.some((row) => String(row[0] ?? "").trim() === order.orderNumber)) return "already_exists";
 
-  const range = a1(config.tabName, "A:S");
-  const appended = await sheetsRequest<{ updates?: { updatedRange?: string } }>(
-    config.spreadsheetId, range, {
-      method: "POST",
-      body: JSON.stringify({ range, majorDimension: "ROWS", values: [orderSheetRow(order)] }),
-    }, ":append", "valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS");
+  const values = orderSheetRow(order);
+  let writtenRow = 0;
+  // Deux commandes simultanees peuvent viser la meme ligne. Apres ecriture on relit la
+  // colonne A : si ce n'est pas notre numero, quelqu'un est passe avant et on recommence
+  // plus bas plutot que d'ecraser sa commande.
+  for (let attempt = 0; attempt < 4 && !writtenRow; attempt += 1) {
+    const row = await nextFreeRow(config);
+    const target = a1(config.tabName, `A${row}:S${row}`);
+    await sheetsRequest(config.spreadsheetId, target, {
+      method: "PUT",
+      body: JSON.stringify({ range: target, majorDimension: "ROWS", values: [values] }),
+    }, "", "valueInputOption=USER_ENTERED");
+    const check = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, `A${row}`));
+    if (String(check.values?.[0]?.[0] ?? "").trim() === order.orderNumber) writtenRow = row;
+    else log.warn("sheet.row_taken", { orderNumber: order.orderNumber, row, attempt });
+  }
+  if (!writtenRow) throw new Error("La ligne Google Sheets n'a pas pu etre reservee apres plusieurs tentatives.");
 
   // The photo lives in a column the agent owns, past this file's nineteen, so
   // it is written as a second targeted update rather than widening the append.
@@ -321,10 +356,9 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
   // arrives as text.
   try {
     const imageUrl = orderImageUrl(order);
-    const rowMatch = /![A-Z]+(\d+)/.exec(appended.updates?.updatedRange ?? "");
-    const column = imageUrl && rowMatch ? await headerIndex(config, "image_url") : -1;
-    if (imageUrl && rowMatch && column >= 0) {
-      const cell = a1(config.tabName, `${columnLetter(column)}${rowMatch[1]}`);
+    const column = imageUrl ? await headerIndex(config, "image_url") : -1;
+    if (imageUrl && column >= 0) {
+      const cell = a1(config.tabName, `${columnLetter(column)}${writtenRow}`);
       await sheetsRequest(config.spreadsheetId, cell, {
         method: "PUT",
         body: JSON.stringify({ range: cell, majorDimension: "ROWS", values: [[imageUrl]] }),
