@@ -148,7 +148,7 @@ function mapOrder(row: Row): Order {
   const customerName = String(row.customer_name); const nameParts = customerName.trim().split(/\s+/);
   return { id:Number(row.id),orderNumber:String(row.order_number),customerId:row.customer_id==null?null:Number(row.customer_id),firstName:String(row.first_name??"")||nameParts[0]||"",lastName:String(row.last_name??"")||nameParts.slice(1).join(" "),customerName,
     phone:String(row.phone),city:String(row.city),wilayaCode:String(row.wilaya_code??""),wilayaName:String(row.wilaya_name??row.city??""),commune:String(row.commune??row.city??""),address:String(row.address??""),
-    deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryHubId:row.delivery_hub_id==null?null:String(row.delivery_hub_id),deliveryHubName:row.delivery_hub_name==null?null:String(row.delivery_hub_name),sheetState:row.google_sheet_state==null?null:String(row.google_sheet_state),whatsappLog:row.whatsapp_log==null?null:String(row.whatsapp_log),whatsappLogAt:row.whatsapp_log_at==null?null:new Date(row.whatsapp_log_at as string).toISOString(),deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
+    deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryHubId:row.delivery_hub_id==null?null:String(row.delivery_hub_id),deliveryHubName:row.delivery_hub_name==null?null:String(row.delivery_hub_name),sheetState:row.google_sheet_state==null?null:String(row.google_sheet_state),whatsappLog:row.whatsapp_log==null?null:String(row.whatsapp_log),whatsappLogAt:row.whatsapp_log_at==null?null:new Date(row.whatsapp_log_at as string).toISOString(),deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliveryTracking:row.delivery_tracking==null?null:String(row.delivery_tracking),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
     deliverySyncError:row.delivery_sync_error==null?null:String(row.delivery_sync_error),notes:String(row.notes??""),status:String(row.status) as OrderStatus,items:parseJson<OrderItem[]>(row.items_json,[]),
     subtotalCents:Number(row.subtotal_cents),shippingCents:Number(row.shipping_cents),totalCents:Number(row.total_cents),statusHistory:[],refunds:[],deliveryCost:null,attribution:null,sheetSyncedAt:row.sheet_synced_at==null?null:timestamp(row.sheet_synced_at),sheetAttempts:Number(row.sheet_attempts??0),sheetLastError:row.sheet_last_error==null?null:String(row.sheet_last_error),createdAt:timestamp(row.created_at),updatedAt:timestamp(row.updated_at) };
 }
@@ -218,6 +218,28 @@ export async function listOrdersPendingSheetSync(limit = 50): Promise<Order[]> {
         AND updated_at < NOW() - (LEAST(sheet_attempts, 15) * INTERVAL '2 minutes')
       ORDER BY created_at ASC LIMIT $1`, [capped])).map(mapOrder);
 }
+/**
+ * Horodatage du dernier passage REUSSI du travail planifie de synchronisation.
+ *
+ * Ecrit uniquement par /api/cron/sheet-sync, jamais par l'ouverture du tableau de bord.
+ * C'est toute l'astuce : le tableau de bord synchronise lui aussi a chaque chargement, donc
+ * un horodatage commun serait rafraichi par la personne qui regarde et ne prouverait rien.
+ * Separes, ils repondent a la question qui compte : « est-ce que ca tourne quand personne ne
+ * regarde ? » Si non, les statuts de livraison -- et donc le chiffre d'affaires reconnu, qui
+ * ne compte que les commandes livrees -- restent en retard sur la realite.
+ */
+export async function markScheduledSheetSync(): Promise<void> {
+  await ensureDatabase();
+  await pool.query(
+    `INSERT INTO app_settings (setting_key, value_json) VALUES ('sheet_sync_last_run', to_jsonb(NOW()))
+     ON CONFLICT(setting_key) DO UPDATE SET value_json=EXCLUDED.value_json, updated_at=NOW()`);
+}
+
+export async function lastScheduledSheetSyncAt(): Promise<string | null> {
+  const result = await rows("SELECT updated_at FROM app_settings WHERE setting_key='sheet_sync_last_run'");
+  return result[0] ? new Date(result[0].updated_at as string).toISOString() : null;
+}
+
 export async function markOrderSheetSynced(id: number): Promise<void> {
   await ensureDatabase();
   await pool.query("UPDATE orders SET sheet_synced_at=NOW(), sheet_last_error=NULL WHERE id=$1", [id]);
@@ -284,6 +306,43 @@ async function changeStock(client: PoolClient, items: OrderItem[], direction: -1
 type CreateOrderInput={customerId:number|null;firstName:string;lastName:string;customerName:string;phone:string;city:string;wilayaCode:string;wilayaName:string;commune:string;address:string;deliveryType:DeliveryType;deliveryHubId?:string|null;deliveryHubName?:string|null;notes:string;items:OrderItem[];subtotalCents:number;shippingCents:number;totalCents:number};
 export async function createOrder(input:CreateOrderInput):Promise<Order>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");await changeStock(client,input.items,-1);const number=`LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;const result=await client.query(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16::jsonb,$17,$18,$19,TRUE) RETURNING *`,[number,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId??null,input.deliveryHubName??null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents]);await client.query("COMMIT");return mapOrder(result.rows[0]);}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
 export async function updateDeliverySync(id:number,patch:{status:Order["deliverySyncStatus"];externalId?:string|null;error?:string|null}):Promise<void>{await ensureDatabase();await pool.query("UPDATE orders SET delivery_sync_status=$1,delivery_external_id=$2,delivery_sync_error=$3,updated_at=NOW() WHERE id=$4",[patch.status,patch.externalId??null,patch.error??null,id]);}
+/**
+ * Recopie dans la boutique le colis cree par l'agent de confirmation.
+ *
+ * L'agent cree le colis chez ZR Express et n'en ecrit les identifiants que dans la feuille.
+ * Tant que la boutique ne les lisait pas, `delivery_external_id` restait vide et trois choses
+ * fausses en decoulaient : le bouton « Envoyer a ZR Express » restait actif sur une commande
+ * deja expediee -- ZR refusait alors le doublon et la commande s'affichait en echec --, les
+ * boutons Modifier et Supprimer restaient ouverts sur un colis en route, et le numero de
+ * suivi n'apparaissait nulle part.
+ *
+ * COALESCE : un identifiant pose par la boutique elle-meme n'est jamais ecrase.
+ * La condition finale rend l'appel idempotent, pour que le cron ne reecrive pas toutes les
+ * cinq minutes. `updated_at` n'est volontairement pas touche : il pilote le recul progressif
+ * de la file d'export, qui n'a rien a voir avec cette recopie.
+ */
+export async function adoptSheetDelivery(id:number,parcelId:string|null,tracking:string|null):Promise<boolean>{
+  await ensureDatabase();
+  const result=await pool.query(
+    `UPDATE orders
+        SET delivery_external_id = COALESCE(delivery_external_id, $2),
+            delivery_tracking    = COALESCE(delivery_tracking, $3),
+            delivery_sync_status = 'sent',
+            delivery_sync_error  = NULL
+      WHERE id = $1
+        AND (delivery_sync_status <> 'sent'
+             OR (delivery_external_id IS NULL AND $2::text IS NOT NULL)
+             OR (delivery_tracking IS NULL AND $3::text IS NOT NULL))`,
+    [id,parcelId,tracking]);
+  return (result.rowCount??0)>0;
+}
+
+/** Numero d'une commande, pour les appels qui ne manipulent que son identifiant. */
+export async function orderNumberById(id:number):Promise<string|null>{
+  const found=await rows("SELECT order_number FROM orders WHERE id=$1",[id]);
+  return found[0]?String(found[0].order_number):null;
+}
+
 export type DeliveryDispatchClaim={status:"claimed";order:Order}|{status:"not_found"}|{status:"not_confirmed"}|{status:"pending"}|{status:"already_sent"};
 export async function claimOrderForDelivery(id:number):Promise<DeliveryDispatchClaim>{await ensureDatabase();const claimed=await pool.query("UPDATE orders SET delivery_sync_status='pending',delivery_sync_error=NULL,updated_at=NOW() WHERE id=$1 AND status IN ('confirmed','preparing') AND delivery_external_id IS NULL AND delivery_sync_status IN ('not_configured','failed') RETURNING *",[id]);if(claimed.rows[0])return{status:"claimed",order:mapOrder(claimed.rows[0])};const existing=await rows("SELECT status,delivery_sync_status,delivery_external_id FROM orders WHERE id=$1",[id]);if(!existing[0])return{status:"not_found"};if(existing[0].delivery_external_id||existing[0].delivery_sync_status==="sent")return{status:"already_sent"};if(existing[0].delivery_sync_status==="pending")return{status:"pending"};return{status:"not_confirmed"};}
 /** What an admin may change on an existing order. Prices are never taken from the client. */

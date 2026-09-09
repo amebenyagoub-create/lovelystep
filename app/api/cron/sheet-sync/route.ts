@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
-import { sheetOutboxDepth } from "@/lib/db-postgres";
+import { lastScheduledSheetSyncAt, markScheduledSheetSync, sheetOutboxDepth } from "@/lib/db-postgres";
 import { drainOrderSheetOutbox, syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 import { log, errorMessage } from "@/lib/log";
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
   try {
     const pulled = await syncOrderStatesFromGoogleSheet();
-    outcome.states = { updated: pulled.updated, unknownStates: pulled.unknownStates };
+    outcome.states = { updated: pulled.updated, parcelsAdopted: pulled.parcelsAdopted, unknownStates: pulled.unknownStates };
     // An unrecognised state means the agent knows something the store cannot read.
     if (pulled.unknownStates.length) log.actionRequired("sheet_states_unknown", { states: pulled.unknownStates });
   } catch (error) {
@@ -63,6 +63,12 @@ export async function POST(request: Request) {
   } catch {
     // Depth is diagnostic only; never fail the run over it.
   }
+
+  // Preuve que le travail planifie tourne vraiment. Sans elle, un cron jamais configure est
+  // indiscernable d'un cron qui tourne : les deux se traduisent par des statuts en retard,
+  // et personne ne sait lequel des deux on regarde.
+  if (ok) await markScheduledSheetSync().catch(() => undefined);
+  outcome.previousRunAt = await lastScheduledSheetSyncAt().catch(() => null);
 
   return NextResponse.json({ ok, ...outcome }, { status: ok ? 200 : 500 });
 }

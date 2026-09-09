@@ -67,19 +67,41 @@ export async function pickupHubsForWilaya(wilayaCode: string, wilayaName: string
   }
 }
 
+export type SubmittedHubResult =
+  /** L'identifiant existe bien dans la liste reelle de la wilaya. */
+  | { status: "resolved"; hub: ZrPickupHub }
+  /** La liste a ete obtenue et l'identifiant n'y figure pas : il ne doit pas etre garde. */
+  | { status: "unknown" }
+  /** ZR n'a pas repondu : on ne peut ni confirmer ni infirmer le choix du client. */
+  | { status: "unavailable" };
+
 /**
- * Renvoie le bureau correspondant a l'identifiant soumis, ou null.
+ * Confronte le bureau soumis par le navigateur a la liste reelle de la wilaya.
  *
- * Un identifiant venu du navigateur n'est jamais recopie tel quel dans la commande : il est
- * confronte a la liste reelle de la wilaya. Si ZR est injoignable, on renvoie null et la
- * commande part sans bureau, ce que l'expedition sait encore resoudre par elle-meme.
+ * La version precedente renvoyait `null` dans les deux cas d'echec, et l'appelant enregistrait
+ * alors la commande sans bureau. Or « ZR n'a pas repondu » et « ce bureau n'existe pas » ne
+ * demandent pas la meme chose : dans le premier cas l'identifiant vient d'une liste que ZR
+ * lui-meme nous a servie quelques minutes plus tot et reste tres probablement bon, dans le
+ * second il est faux et doit disparaitre.
+ *
+ * Les confondre coutait cher et en silence : sans bureau, l'expedition en devine un a partir
+ * de la commune, et le colis pouvait atterrir dans un autre bureau que celui choisi par le
+ * client -- qui se deplace alors pour rien. On distingue donc les deux, et l'appelant garde
+ * le choix du client quand ZR est simplement injoignable.
+ *
+ * Une liste vide est traitee comme une panne : pickupHubsForWilaya retombe deja sur une
+ * recherche par mot-cle qui renvoie `[]` quand ZR echoue, donc « aucun bureau » ne prouve pas
+ * que celui du client n'existe pas.
  */
-export async function resolveSubmittedHub(wilayaCode: string, wilayaName: string, hubId: string): Promise<ZrPickupHub | null> {
-  if (!hubId) return null;
+export async function resolveSubmittedHub(wilayaCode: string, wilayaName: string, hubId: string): Promise<SubmittedHubResult> {
+  if (!hubId) return { status: "unknown" };
+  let hubs: ZrPickupHub[];
   try {
-    const hubs = await pickupHubsForWilaya(wilayaCode, wilayaName);
-    return hubs.find((hub) => hub.id === hubId) ?? null;
+    hubs = await pickupHubsForWilaya(wilayaCode, wilayaName);
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
+  if (!hubs.length) return { status: "unavailable" };
+  const hub = hubs.find((entry) => entry.id === hubId);
+  return hub ? { status: "resolved", hub } : { status: "unknown" };
 }

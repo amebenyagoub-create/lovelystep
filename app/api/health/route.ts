@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { databasePing, sheetOutboxDepth } from "@/lib/db-postgres";
+import { databasePing, lastScheduledSheetSyncAt, sheetOutboxDepth } from "@/lib/db-postgres";
 import { getZrExpressStatus } from "@/lib/zrexpress";
 
 export const runtime = "nodejs";
@@ -28,15 +28,25 @@ export async function GET() {
   // Orders queued for more than an hour mean the scheduled sync is not running,
   // and every one of them is a customer the confirmation agent never saw.
   const stalled = Boolean(outbox?.oldestPendingAt && Date.now() - Date.parse(outbox.oldestPendingAt) > 60 * 60 * 1000);
+
+  /**
+   * Le retour d'information -- etats de livraison ecrits par l'agent -- n'avait aucun signal.
+   * L'attente d'export ci-dessus ne couvre que l'aller. Si le travail planifie ne tourne pas,
+   * l'aller finit par se debloquer a la premiere ouverture du tableau de bord, mais le retour
+   * reste muet : les commandes livrees ne sont jamais comptees comme telles.
+   */
+  const lastScheduledSync = await lastScheduledSheetSyncAt().catch(() => null);
+  const syncSilent = !lastScheduledSync || Date.now() - Date.parse(lastScheduledSync) > 60 * 60 * 1000;
+
   const zr = getZrExpressStatus();
-  const ok = database && !stalled;
+  const ok = database && !stalled && !syncSilent;
 
   return NextResponse.json({
     ok,
     bootedAt: BOOTED_AT,
     uptimeMinutes: Math.round(process.uptime() / 60),
     database,
-    googleSheets: { configured: Boolean((process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? "").trim()), outbox, stalled },
+    googleSheets: { configured: Boolean((process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? "").trim()), outbox, stalled, lastScheduledSync, syncSilent },
     zrExpress: { configured: zr.ready },
   }, { status: ok ? 200 : 503 });
 }

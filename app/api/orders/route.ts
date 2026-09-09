@@ -11,6 +11,7 @@ import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
 import { resolveSubmittedHub } from "@/lib/pickup-hubs";
 import { metaRequestContext } from "@/lib/meta/request";
+import { log } from "@/lib/log";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -99,12 +100,23 @@ export async function POST(request: Request) {
   }
   const shippingCents = Math.round(rawShippingCents);
   try {
-    // Le bureau vient du navigateur : on le reconfronte a la liste reelle de la wilaya avant
-    // de l'ecrire. Un identifiant inconnu, ou ZR injoignable, laisse simplement le champ vide
-    // et l'expedition retombe sur la resolution automatique d'avant.
-    const hub = submittedHubId ? await resolveSubmittedHub(wilayaCode, wilaya.nameFr, submittedHubId) : null;
+    /**
+     * Le bureau vient du navigateur : on le reconfronte a la liste reelle de la wilaya.
+     *
+     * ZR injoignable n'est PAS la meme chose qu'un bureau inconnu. Les deux laissaient le
+     * champ vide, et une commande sans bureau fait deviner le bureau a l'expedition a partir
+     * de la commune : le colis pouvait donc partir dans un autre bureau que celui choisi par
+     * le client, en silence. Quand ZR ne repond pas, on garde le choix du client -- il sort
+     * d'une liste que ZR nous a servie quelques minutes plus tot. Quand la liste a bien ete
+     * lue et que le bureau n'y est pas, on l'efface et on le signale.
+     */
+    const submitted = submittedHubId ? await resolveSubmittedHub(wilayaCode, wilaya.nameFr, submittedHubId) : null;
+    if (submitted?.status === "unknown") log.actionRequired("pickup_hub_unknown", { wilayaCode, submittedHubId });
+    if (submitted?.status === "unavailable") log.warn("pickup_hub_unverified", { wilayaCode });
+    const hub = submitted?.status === "resolved" ? submitted.hub : null;
+    const hubId = submitted?.status === "unavailable" ? submittedHubId : hub?.id ?? null;
     const customer = await getCustomerSession();
-    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hub?.id ?? null, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;

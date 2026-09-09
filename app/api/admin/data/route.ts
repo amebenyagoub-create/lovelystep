@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { dashboardStats, getDeliveryIntegration, getStoreSettings, listDeliveryRates, listExpenses, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
+import { dashboardStats, getDeliveryIntegration, getStoreSettings, lastScheduledSheetSyncAt, listDeliveryRates, listExpenses, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
 import { syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 import { log, errorMessage } from "@/lib/log";
 import { metaStatus } from "@/lib/meta/config";
@@ -38,7 +38,13 @@ export async function GET() {
       insightsConfigured: Boolean(process.env.META_AD_ACCOUNT_ID && process.env.META_ACCESS_TOKEN),
     },
     zrExpress: getZrExpressStatus(),
-    sheetSync: { ...sheetSync, depth: await sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })) },
+    sheetSync: {
+      ...sheetSync,
+      depth: await sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })),
+      // Ouvrir cette page synchronise aussi, donc cette date ne vient QUE du travail planifie :
+      // c'est la seule facon de voir qu'il ne tourne pas quand personne ne regarde.
+      lastScheduledSync: await lastScheduledSheetSyncAt().catch(() => null),
+    },
     products, orders, storeSettings, deliveryRates, deliveryIntegration, expenses,
   });
 }

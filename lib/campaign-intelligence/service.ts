@@ -286,10 +286,23 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
 
   const groups = new Map<string, CampaignInsightDailyRecord[]>();
   for (const row of insightRows) groups.set(row.entityId, [...(groups.get(row.entityId) ?? []), row]);
+  /**
+   * Une commande se rattache a sa campagne par le NOM normalise ou par l'IDENTIFIANT Meta.
+   *
+   * Les parametres d'URL d'une publicite peuvent porter {{campaign.name}} ou {{campaign.id}}.
+   * Seul le nom etait reconnu : une annonce reglee sur l'identifiant produisait des commandes
+   * rattachees a rien, et le CPA de la campagne s'en trouvait surestime puisqu'on lui comptait
+   * la depense sans les ventes.
+   *
+   * L'identifiant est meme le rattachement le plus sur : il est unique et survit a un
+   * changement de nom, ce qu'un nom ne fait pas.
+   */
   const normalizedEntities = new Map<string, string[]>();
   for (const [entityId, rows] of groups) {
     const normalized = normalizeCampaignName(rows[0]?.entityName);
     if (normalized) normalizedEntities.set(normalized, [...(normalizedEntities.get(normalized) ?? []), entityId]);
+    const byId = normalizeCampaignName(entityId);
+    if (byId && byId !== normalized) normalizedEntities.set(byId, [...(normalizedEntities.get(byId) ?? []), entityId]);
   }
   const ordersByEntity = new Map<string, Order[]>();
   let unattributedOrders = 0;

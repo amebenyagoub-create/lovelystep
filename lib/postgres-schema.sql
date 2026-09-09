@@ -385,6 +385,11 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;
 
+-- Numero de suivi ZR Express. Le colis est souvent cree par l'agent de confirmation, qui
+-- n'ecrit son identifiant que dans la feuille : sans cette colonne la boutique ignore que le
+-- colis existe, propose de le renvoyer a ZR et laisse supprimer une commande deja en route.
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_tracking TEXT;
+
 -- Durable outbox for the Google Sheet export. The agent only sees an order once
 -- its row exists in the Sheet, so a lost export means no confirmation message and
 -- no parcel. sheet_synced_at IS NULL is the work queue; the cron drains it.

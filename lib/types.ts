@@ -111,6 +111,8 @@ export type Order = {
   whatsappLog: string | null;
   whatsappLogAt: string | null;
   deliveryExternalId: string | null;
+  /** Numero de suivi ZR Express, recopie de la feuille ou l'agent l'ecrit. */
+  deliveryTracking: string | null;
   deliverySyncStatus: "not_configured" | "pending" | "sent" | "failed";
   deliverySyncError: string | null;
   notes: string;

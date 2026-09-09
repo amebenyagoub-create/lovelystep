@@ -10,7 +10,7 @@ import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
 
-type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null } }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
+type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null }; lastScheduledSync: string | null }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
 type Tab = "overview" | "analytics" | "campaigns" | "meta" | "orders" | "products" | "store" | "delivery";
 const money = (cents: number) => new Intl.NumberFormat("fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
 const orderLabels: Record<OrderStatus, string> = { new: "Nouvelle", to_confirm: "À confirmer", confirmed: "Confirmée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", refused: "Refusée", returned: "Retournée", cancelled: "Annulée" };
@@ -59,7 +59,14 @@ export default function AdminDashboard() {
     }
   }
   async function logout() { const value = await jsonRequest("/api/admin/logout", { method: "POST" }); if (value) router.replace("/admin/login"); }
-  async function updateOrder(id: number, status: OrderStatus) { const value = await jsonRequest("/api/admin/orders", { method: "PATCH", body: JSON.stringify({ id, status }) }); if (value) setNotice("Statut de la commande mis à jour."); }
+  async function updateOrder(id: number, status: OrderStatus) {
+    const value = await jsonRequest("/api/admin/orders", { method: "PATCH", body: JSON.stringify({ id, status }) });
+    if (!value) return;
+    // Une annulation que l'agent n'a pas recue est pire qu'un echec visible : il continuerait
+    // a ecrire au client. Le message du serveur passe donc en avertissement, pas en confirmation.
+    if (value.warning) setError(String(value.warning));
+    else setNotice(status === "cancelled" ? "Commande annulée. L’agent de confirmation a été prévenu." : "Statut de la commande mis à jour.");
+  }
   async function removeOrder(order: Order) {
     const stockNotice = ["refused", "returned", "cancelled"].includes(order.status) ? "" : "\n\nLes articles réservés seront remis en stock.";
     if (!window.confirm(`Supprimer définitivement la commande ${order.orderNumber} ?${stockNotice}\n\nCette action est irréversible.`)) return;
@@ -69,16 +76,16 @@ export default function AdminDashboard() {
   async function retrySheetExport(order: Order | null) {
     const value = await jsonRequest("/api/admin/orders/sheet-retry", { method: "POST", body: JSON.stringify(order ? { id: order.id } : {}) });
     if (!value) return;
-    const outbox = value.outbox as { exported: number; alreadyPresent: number; failed: number };
+    const outbox = value.outbox as { exported: number; refreshed: number; alreadyPresent: number; failed: number };
     setNotice(outbox.failed
       ? `${outbox.failed} commande(s) toujours en échec d’export vers Google Sheets.`
-      : `Export Google Sheets à jour (${outbox.exported} ajoutée(s), ${outbox.alreadyPresent} déjà présente(s)).`);
+      : `Export Google Sheets à jour (${outbox.exported} ajoutée(s), ${outbox.refreshed ?? 0} corrigée(s), ${outbox.alreadyPresent} déjà présente(s)).`);
   }
   async function sendOrderToZr(order: Order) {
-    // The external confirmation agent also creates parcels, keyed on the order id.
-    // It does not write delivery_external_id here, so this button cannot see its
-    // parcel and ZR will not deduplicate the two.
-    if (!window.confirm(`Envoyer la commande ${order.orderNumber} à ZR Express ?\n\nCette action crée un vrai colis chez le transporteur.\n\nVérifiez d’abord que l’agent de confirmation n’a pas déjà créé le colis : sinon la commande partira deux fois.`)) return;
+    // L'agent de confirmation cree lui aussi des colis. La synchronisation recopie desormais
+    // son numero de colis et de suivi dans la commande, donc ce bouton disparait des qu'un
+    // colis existe : il ne reste visible que pour les commandes qu'aucun colis ne couvre.
+    if (!window.confirm(`Envoyer la commande ${order.orderNumber} à ZR Express ?\n\nCette action crée un vrai colis chez le transporteur.`)) return;
     const value = await jsonRequest("/api/admin/orders/zrexpress", { method: "POST", body: JSON.stringify({ id: order.id }) });
     if (value) setNotice(`Commande envoyée à ZR Express. ID colis : ${value.parcelId}`);
   }
@@ -118,7 +125,7 @@ export default function AdminDashboard() {
       {tab === "analytics" && <AnalyticsPanel />}
       {tab === "campaigns" && <CampaignIntelligencePanel csrfToken={data.csrfToken} />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
-      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
+      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button><button disabled={busy || product.status !== "published"} title={product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
       {tab === "store" && <StorefrontEditor settings={data.storeSettings} images={[...new Set(data.products.flatMap((product) => product.images))]} csrfToken={data.csrfToken} busy={busy} onError={setError} onSave={async (settings) => { const value = await jsonRequest("/api/admin/store-settings", { method: "POST", body: JSON.stringify(settings) }); if (value) setNotice("Façade de la boutique mise à jour."); }} />}
       {tab === "delivery" && <DeliveryEditor rates={data.deliveryRates} zrExpress={data.zrExpress} busy={busy} onSyncZrExpress={async () => { const value = await jsonRequest("/api/admin/delivery/sync-zrexpress", { method: "POST" }); if (!value) return null; setNotice(`${value.syncedWilayas} wilaya(s) synchronisée(s) depuis ZR Express.`); return value.rates as DeliveryRate[]; }} onSaveRates={async (rates) => { const value = await jsonRequest("/api/admin/delivery", { method: "POST", body: JSON.stringify({ rates }) }); if (value) setNotice("Tarifs de livraison enregistrés."); }} />}
@@ -230,6 +237,22 @@ function SheetSyncBanner({ sync }: { sync: AdminData["sheetSync"] }) {
   // Silence used to be the failure mode here: a lost export meant the confirmation
   // agent never saw the order, and nothing on this page said so.
   if (sync.error) return <div className="sheet-sync-banner error">Google Sheets injoignable : {sync.error}</div>;
+  /**
+   * La synchronisation automatique tourne-t-elle vraiment ?
+   *
+   * Cette page synchronise a chaque chargement, ce qui masque completement le probleme :
+   * tout semble a jour tant qu'on la regarde. Sans le travail planifie, les livraisons et
+   * les retours ne remontent pas entre deux ouvertures -- et le chiffre d'affaires reconnu,
+   * qui ne compte que les commandes livrees, reste faux.
+   */
+  const lastRun = sync.lastScheduledSync ? Date.parse(sync.lastScheduledSync) : null;
+  const silentFor = lastRun ? Math.round((Date.now() - lastRun) / 60000) : null;
+  if (silentFor === null) {
+    return <div className="sheet-sync-banner error">La synchronisation automatique n’a jamais tourné. Les statuts de livraison ne se mettent à jour que pendant que cette page est ouverte : tant que c’est le cas, les commandes livrées et retournées remontent en retard.</div>;
+  }
+  if (silentFor > 60) {
+    return <div className="sheet-sync-banner error">La synchronisation automatique n’a pas tourné depuis {silentFor > 1440 ? `${Math.round(silentFor / 1440)} jour(s)` : `${silentFor} minutes`}. Les statuts de livraison ne remontent plus qu’à l’ouverture de cette page.</div>;
+  }
   const parts: string[] = [];
   if (sync.depth.pending) parts.push(`${sync.depth.pending} commande(s) en attente d’export`);
   if (sync.depth.failing) parts.push(`dont ${sync.depth.failing} en échec répété`);
@@ -280,12 +303,43 @@ function OrderConversation({ order }: { order: Order }) {
   </div>;
 }
 
+/**
+ * Ce que l'agent a reellement constate, affiche sous le statut a neuf valeurs.
+ *
+ * Le statut de la boutique replie dix-neuf etats de l'agent sur neuf : « livraison manquee »,
+ * « bloquee depuis 72 h » et « chez le livreur » s'affichent tous « Expediee » ; « donnees a
+ * corriger » et « client sans reponse » s'affichent tous deux « A confirmer ». Les etats qui
+ * demandent une action etaient donc rigoureusement invisibles dans ce tableau, alors que
+ * l'agent les ecrivait a chaque fois. On les affiche a cote, sans toucher au statut lui-meme.
+ */
+const agentStates: Record<string, { label: string; tone: "alert" | "info" }> = {
+  NEEDS_REVIEW: { label: "Données à corriger", tone: "alert" },
+  ZR_ERROR: { label: "Échec création du colis", tone: "alert" },
+  MISSED_ATTEMPT: { label: "Livraison manquée", tone: "alert" },
+  STALLED: { label: "Bloquée depuis 72 h", tone: "alert" },
+  NO_REPLY: { label: "Client sans réponse", tone: "alert" },
+  HUMAN: { label: "À reprendre à la main", tone: "alert" },
+  SCHEDULED: { label: "Reportée par le client", tone: "info" },
+  AGENT_TALKING: { label: "Conversation en cours", tone: "info" },
+  CONFIRM_SENT: { label: "Confirmation envoyée", tone: "info" },
+  OUT_FOR_DELIVERY: { label: "Chez le livreur", tone: "info" },
+  ARRIVED_WILAYA: { label: "Arrivée en wilaya", tone: "info" },
+};
+function agentState(sheetState: string | null) {
+  return agentStates[String(sheetState ?? "").trim().toUpperCase()] ?? null;
+}
+/** Commandes ou l'agent attend une action de votre part. */
+export function ordersNeedingAttention(orders: Order[]): number {
+  return orders.filter((order) => agentState(order.sheetState)?.tone === "alert").length;
+}
+
 function OrdersTable({ orders, onEdit, onStatus, onDelete, onDispatch, onRetrySheet, zrExpressReady, busy }: { orders: Order[]; onEdit: (order: Order) => void; onStatus: (id: number, status: OrderStatus) => void; onDelete: (order: Order) => void; onDispatch: (order: Order) => void; onRetrySheet: (order: Order) => void; zrExpressReady: boolean; busy: boolean }) {
   if (!orders.length) return <div className="empty-admin">Aucune commande pour le moment.</div>;
   return <div className="orders-table"><div className="order-row order-head"><span>N°</span><span>Client</span><span>Articles</span><span>Total</span><span>Date</span><span>Statut et livraison</span></div>{orders.map((order) => {
     const canDispatch = order.status === "confirmed" || order.status === "preparing";
+    const agent = agentState(order.sheetState);
     const deliveryLocked = order.deliverySyncStatus === "sent" || order.deliverySyncStatus === "pending" || Boolean(order.deliveryExternalId);
-    return <article className="order-row" key={order.id}><div className="order-number"><small>Commande</small><strong>{order.orderNumber}</strong><span>{new Date(order.createdAt).toLocaleDateString("fr-FR")}</span></div><div className="order-customer"><b>{order.customerName}</b><a href={`tel:${order.phone.replace(/\s+/g, "")}`}>{order.phone}</a><small>{order.commune || order.city} · {order.wilayaName || order.city}<br />{order.deliveryType === "office" ? "Bureau" : "Domicile"}{order.deliveryType === "office" && order.deliveryHubName ? <><br /><em className="order-hub">{order.deliveryHubName}</em></> : null}</small></div><div className="order-items"><b>{order.items.reduce((sum, item) => sum + item.quantity, 0)} article(s)</b><ul className="order-item-list">{order.items.map((item) => <li key={`${item.productId}-${item.size}-${item.color || ""}`}>{item.image ? <Image src={item.image} alt="" width={44} height={53} /> : <i className="order-item-noimage" aria-hidden="true" />}<span><b>{item.name}</b><small>{item.size}{item.color ? ` \u00b7 ${item.color}` : ""}</small></span><em>{"\u00d7"}{item.quantity}</em></li>)}</ul></div><div className="order-total"><small>Total</small><strong>{money(order.totalCents)}</strong><span>Livraison {money(order.shippingCents)}</span></div><div className="order-date">{new Date(order.createdAt).toLocaleDateString("fr-FR")}</div><div className="order-status-cell"><label><span>Statut</span><select aria-label={`Statut de la commande ${order.orderNumber}`} disabled={busy} value={order.status} onChange={(event) => onStatus(order.id, event.target.value as OrderStatus)}>{Object.entries(orderLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{order.deliverySyncStatus === "sent" ? <><span className="status published">Envoyée à ZR</span><small className="zr-parcel-id">ID colis : {order.deliveryExternalId}</small></> : order.deliverySyncStatus === "pending" ? <span className="status draft">Envoi ZR en cours…</span> : <>{order.deliverySyncStatus === "failed" && <><span className="status failed">Échec ZR Express</span><small className="delivery-sync-error">{order.deliverySyncError}</small></>}{canDispatch ? <button type="button" className="zr-send-button" disabled={busy || !zrExpressReady} onClick={() => onDispatch(order)}>{order.deliverySyncStatus === "failed" ? "Réessayer l’envoi ZR" : "Envoyer à ZR Express"}</button> : <small className="zr-help">Confirmez la commande avant l’envoi.</small>}</>}{!order.sheetSyncedAt && <div className="sheet-sync-cell"><span className="status failed">Pas encore dans Google Sheets</span>{order.sheetLastError && <small className="delivery-sync-error">{order.sheetLastError}</small>}<button type="button" className="zr-send-button" disabled={busy} onClick={() => onRetrySheet(order)}>Réessayer l’export Sheets</button></div>}<button type="button" className="order-edit-button" disabled={busy || deliveryLocked} title={deliveryLocked ? "Colis déjà chez ZR Express : annulez-le avant de modifier" : `Modifier ${order.orderNumber}`} onClick={() => onEdit(order)}>Modifier</button><button type="button" className="order-delete-button" disabled={busy || deliveryLocked} title={deliveryLocked ? "Annulez d’abord le colis chez ZR Express" : `Supprimer ${order.orderNumber}`} onClick={() => onDelete(order)}>Supprimer</button></div><OrderConversation order={order} /></article>;
+    return <article className="order-row" key={order.id}><div className="order-number"><small>Commande</small><strong>{order.orderNumber}</strong><span>{new Date(order.createdAt).toLocaleDateString("fr-FR")}</span></div><div className="order-customer"><b>{order.customerName}</b><a href={`tel:${order.phone.replace(/\s+/g, "")}`}>{order.phone}</a><small>{order.commune || order.city} · {order.wilayaName || order.city}<br />{order.deliveryType === "office" ? "Bureau" : "Domicile"}{order.deliveryType === "office" && order.deliveryHubName ? <><br /><em className="order-hub">{order.deliveryHubName}</em></> : null}</small></div><div className="order-items"><b>{order.items.reduce((sum, item) => sum + item.quantity, 0)} article(s)</b><ul className="order-item-list">{order.items.map((item) => <li key={`${item.productId}-${item.size}-${item.color || ""}`}>{item.image ? <Image src={item.image} alt="" width={44} height={53} /> : <i className="order-item-noimage" aria-hidden="true" />}<span><b>{item.name}</b><small>{item.size}{item.color ? ` \u00b7 ${item.color}` : ""}</small></span><em>{"\u00d7"}{item.quantity}</em></li>)}</ul></div><div className="order-total"><small>Total</small><strong>{money(order.totalCents)}</strong><span>Livraison {money(order.shippingCents)}</span></div><div className="order-date">{new Date(order.createdAt).toLocaleDateString("fr-FR")}</div><div className="order-status-cell"><label><span>Statut</span><select aria-label={`Statut de la commande ${order.orderNumber}`} disabled={busy} value={order.status} onChange={(event) => onStatus(order.id, event.target.value as OrderStatus)}>{Object.entries(orderLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{agent && <span className={`agent-state ${agent.tone}`} title="Constaté par l’agent de confirmation">{agent.label}</span>}{order.deliverySyncStatus === "sent" ? <><span className="status published">Envoyée à ZR</span>{order.deliveryTracking ? <small className="zr-parcel-id">Suivi ZR : {order.deliveryTracking}</small> : order.deliveryExternalId ? <small className="zr-parcel-id">ID colis : {order.deliveryExternalId}</small> : null}</> : order.deliverySyncStatus === "pending" ? <span className="status draft">Envoi ZR en cours…</span> : <>{order.deliverySyncStatus === "failed" && <><span className="status failed">Échec ZR Express</span><small className="delivery-sync-error">{order.deliverySyncError}</small></>}{canDispatch ? <button type="button" className="zr-send-button" disabled={busy || !zrExpressReady} onClick={() => onDispatch(order)}>{order.deliverySyncStatus === "failed" ? "Réessayer l’envoi ZR" : "Envoyer à ZR Express"}</button> : <small className="zr-help">Confirmez la commande avant l’envoi.</small>}</>}{!order.sheetSyncedAt && <div className="sheet-sync-cell"><span className="status failed">Pas encore dans Google Sheets</span>{order.sheetLastError && <small className="delivery-sync-error">{order.sheetLastError}</small>}<button type="button" className="zr-send-button" disabled={busy} onClick={() => onRetrySheet(order)}>Réessayer l’export Sheets</button></div>}<button type="button" className="order-edit-button" disabled={busy || deliveryLocked} title={deliveryLocked ? "Colis déjà chez ZR Express : annulez-le avant de modifier" : `Modifier ${order.orderNumber}`} onClick={() => onEdit(order)}>Modifier</button><button type="button" className="order-delete-button" disabled={busy || deliveryLocked} title={deliveryLocked ? "Annulez d’abord le colis chez ZR Express" : `Supprimer ${order.orderNumber}`} onClick={() => onDelete(order)}>Supprimer</button></div><OrderConversation order={order} /></article>;
   })}</div>;
 }
 

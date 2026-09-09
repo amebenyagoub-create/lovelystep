@@ -194,6 +194,9 @@
 .admin-secondary{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:10px;padding:11px 17px;font-size:12px;font-weight:800}
 .admin-secondary:hover{background:#f6f7f9}
 .admin-secondary:disabled{opacity:.5;cursor:not-allowed}
+.agent-state{justify-self:start;display:inline-block;border-radius:999px;padding:3px 9px;font-size:9px;font-weight:800;letter-spacing:.02em;line-height:1.5}
+.agent-state.alert{background:#ffe5e2;color:#a13931}
+.agent-state.info{background:#e8eef7;color:#2a4d78}
 .sheet-sync-banner{background:#fff1cf;color:#845d00;border-radius:12px;padding:11px 15px;margin-bottom:16px;font-size:12px;font-weight:700;line-height:1.5}
 .sheet-sync-banner.error{background:#ffe5e2;color:#a13931}
 .sheet-sync-cell{display:grid;gap:6px;border-top:1px dashed #e4e8ed;padding-top:7px}

@@ -387,6 +387,7 @@ function mapOrder(row: Row): Order {
     whatsappLog: row.whatsapp_log == null ? null : String(row.whatsapp_log),
     whatsappLogAt: row.whatsapp_log_at == null ? null : String(row.whatsapp_log_at),
     deliveryExternalId: row.delivery_external_id == null ? null : String(row.delivery_external_id),
+    deliveryTracking: row.delivery_tracking == null ? null : String(row.delivery_tracking),
     deliverySyncStatus: String(row.delivery_sync_status ?? "not_configured") as Order["deliverySyncStatus"],
     deliverySyncError: row.delivery_sync_error == null ? null : String(row.delivery_sync_error),
     notes: String(row.notes ?? ""), status: String(row.status) as OrderStatus, items: parseJson<OrderItem[]>(row.items_json, []),

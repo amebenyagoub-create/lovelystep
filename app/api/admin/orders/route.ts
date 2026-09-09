@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { after } from "next/server";
 import { revalidateTag } from "next/cache";
-import { audit, createOrder, deleteOrder, getDeliveryRate, getProductById, negotiatedSubtotal, StockUnavailableError, updateOrderDetails, updateOrderStatus, type OrderEditInput } from "@/lib/db-postgres";
-import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
+import { audit, createOrder, deleteOrder, getDeliveryRate, getProductById, negotiatedSubtotal, orderNumberById, StockUnavailableError, updateOrderDetails, updateOrderStatus, type OrderEditInput } from "@/lib/db-postgres";
+import { pushOrderCancellationToGoogleSheet, queueOrderGoogleSheetSync } from "@/lib/google-sheets";
+import { log, errorMessage } from "@/lib/log";
 import { CATALOG_TAG } from "@/lib/public-cache";
 import { findWilaya } from "@/lib/algeria";
 import type { OrderItem, OrderStatus } from "@/lib/types";
@@ -23,7 +24,34 @@ export async function PATCH(request: Request) {
   if (result === "not_found") return NextResponse.json({ error: "Commande introuvable." }, { status: 404 });
   if (result === "stock_unavailable") return NextResponse.json({ error: "Stock insuffisant pour réactiver cette commande." }, { status: 409 });
   await audit(session.adminId, "order.status", "order", String(id), { status: body.status });
-  return NextResponse.json({ ok: true });
+
+  /**
+   * Une annulation doit atteindre l'agent de confirmation, sinon il continue tout seul.
+   *
+   * Le statut ne vivait que dans la base : la ligne de la feuille restait « en attente de
+   * confirmation », l'agent continuait a ecrire au client d'une commande annulee, puis
+   * finissait par en creer le colis. C'est le seul etat que la boutique pousse vers la
+   * feuille, et le seul qui soit sans risque pour la machine a etats de l'agent.
+   *
+   * L'annulation en base a deja eu lieu et n'est jamais annulee par un echec ici : on
+   * previent l'operateur au lieu de faire echouer son action.
+   */
+  let warning: string | null = null;
+  if (body.status === "cancelled") {
+    const orderNumber = await orderNumberById(id);
+    if (orderNumber) {
+      try {
+        const pushed = await pushOrderCancellationToGoogleSheet(orderNumber, note || reasonCode || "Annulée depuis le back-office");
+        if (pushed === "dispatched") warning = "Commande annulée ici, mais son colis est déjà chez ZR Express : annulez-le aussi chez le transporteur, sinon il partira.";
+        if (pushed === "not_in_sheet") warning = "Commande annulée ici, mais sa ligne est introuvable dans Google Sheets.";
+      } catch (error) {
+        const message = errorMessage(error, "Google Sheets injoignable.");
+        log.actionRequired("sheet_cancellation_push_failed", { orderNumber, message });
+        warning = "Commande annulée ici, mais Google Sheets est injoignable : l’agent de confirmation peut encore relancer le client. Réessayez dans un instant.";
+      }
+    }
+  }
+  return NextResponse.json({ ok: true, warning });
 }
 
 export async function DELETE(request: Request) {
