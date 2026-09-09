@@ -52,7 +52,19 @@ export async function sendPurchaseEvent(order: Order, context: MetaRequestContex
         content_ids: order.items.map((item) => contentId(item.slug)),
         content_type: "product",
         contents: order.items.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
-        value: order.totalCents / 100,
+        /**
+         * La valeur declaree a Meta est le prix des ARTICLES, pas le total encaisse.
+         *
+         * Le livreur encaisse le total chez le client, garde les frais de livraison pour ZR et
+         * ne credite la boutique que du prix des articles. Declarer le total revenait a dire a
+         * Meta que chaque vente vaut environ 10 % de plus qu'elle ne rapporte : ROAS surevalue
+         * dans le gestionnaire, et enchere a la valeur optimisee sur un montant qui n'est pas
+         * le notre.
+         *
+         * Cela rend aussi `value` coherent avec `contents` juste au-dessus, dont la somme des
+         * item_price x quantity vaut exactement ce sous-total. Les deux se contredisaient.
+         */
+        value: order.subtotalCents / 100,
         currency: "DZD",
         num_items: order.items.reduce((sum, item) => sum + item.quantity, 0),
         order_id: order.orderNumber,

@@ -36,7 +36,14 @@ export type PeriodInput = {
 
 export type CompletenessReport = {
   ordersMissingCogs: number;
-  deliveredOrdersMissingDeliveryCost: number;
+  /**
+   * Commandes revenues sans frais de retour enregistres.
+   *
+   * Ce reproche portait avant sur les commandes LIVREES sans cout de livraison. Il n'a plus
+   * de sens : une livraison reussie ne coute rien a la boutique, c'est le client qui l'a
+   * payee au livreur. Le seul cout de transport qui manque vraiment est celui d'un retour.
+   */
+  failedDeliveriesMissingReturnCost: number;
   adSpendConverted: boolean;
   /** True only when every input needed for net profit was present. */
   complete: boolean;
@@ -56,8 +63,27 @@ function orderCogsMinor(order: Order): number | null {
 }
 
 const orderRefundsMinor = (order: Order) => sum(order.refunds.map((refund) => refund.amountCents));
-const orderDeliveryCostMinor = (order: Order) =>
-  order.deliveryCost ? order.deliveryCost.carrierCostCents + order.deliveryCost.returnCostCents : null;
+
+/**
+ * Ce qu'une commande rapporte REELLEMENT a la boutique.
+ *
+ * Le livreur encaisse le total chez le client, garde les frais de livraison pour ZR et ne
+ * credite le compte de la boutique que du prix des articles. Les frais de livraison ne sont
+ * donc ni un revenu ni un cout : ils ne passent jamais par la boutique.
+ *
+ * Toute formule de revenu ou de marge doit partir d'ici. Additionner la livraison puis la
+ * re-soustraire plus loin donne le meme resultat final, mais fausse tout ratio dont elle
+ * devient le denominateur -- panier moyen, marge, ROAS de rentabilite.
+ */
+export const orderStoreRevenueMinor = (order: Order) => order.subtotalCents - orderRefundsMinor(order);
+/**
+ * Ce qu'une commande coute reellement en transport a la boutique : ses frais de RETOUR.
+ *
+ * L'aller n'y figure pas. Le client l'a paye au livreur, qui le remet a ZR : la boutique n'est
+ * jamais debitee. Additionner l'aller ici, alors que le revenu ne le contient plus, le
+ * facturerait une seconde fois.
+ */
+const orderReturnFeeMinor = (order: Order) => order.deliveryCost?.returnCostCents ?? 0;
 
 /**
  * Operating expenses attributable to the period.
@@ -90,13 +116,19 @@ export type RevenueKpis = {
   orderCount: number;
   validOrders: number;
   grossSalesMinor: number;
-  shippingRevenueMinor: number;
+  /**
+   * Frais de livraison encaisses par le livreur POUR ZR. Ce n'est pas un revenu de la
+   * boutique : cet argent ne transite jamais par elle. Affiche pour information seulement.
+   */
+  shippingCollectedForCarrierMinor: number;
   refundsMinor: number;
   netRevenueMinor: number;
   cogsMinor: number;
   grossProfitMinor: number;
   grossMarginPercent: number | null;
   variableCostsMinor: number;
+  /** Frais de retour des commandes non livrees : la seule livraison payee par la boutique. */
+  failedDeliveryCostMinor: number;
   contributionBeforeAdsMinor: number;
   contributionAfterAdsMinor: number | null;
   operatingExpensesMinor: number;
@@ -117,22 +149,49 @@ export function revenueKpis(input: PeriodInput): { kpis: RevenueKpis; completene
   const recognised = orders.filter(isRecognised);
 
   const grossSalesMinor = sum(recognised.map((order) => order.subtotalCents));
-  const shippingRevenueMinor = sum(recognised.map((order) => order.shippingCents));
+
+  /**
+   * Les frais de livraison ne sont PAS un revenu de la boutique.
+   *
+   * Le livreur encaisse le total chez le client (7 500 DA), garde les frais pour ZR (700 DA)
+   * et ne credite le compte de la boutique que du prix des articles (6 800 DA). Cet argent ne
+   * transite jamais par la boutique : ce n'est ni une recette, ni une depense.
+   *
+   * Il etait auparavant compte comme du chiffre d'affaires, puis re-soustrait comme un cout de
+   * transport. Le resultat final tombait juste -- 700 dedans, 700 dehors -- mais tous les
+   * ratios batis dessus etaient faux, parce que leur denominateur contenait l'argent de ZR :
+   * chiffre d'affaires et panier moyen gonfles, marge brute gonflee, et surtout ROAS de
+   * rentabilite SUREVALUE. Ce dernier est celui qui coute : il fixe la barre de rentabilite
+   * trop haut, et fait couper des campagnes qui gagnaient de l'argent.
+   */
+  const shippingCollectedForCarrierMinor = sum(recognised.map((order) => order.shippingCents));
   const refundsMinor = sum(recognised.map(orderRefundsMinor));
   // The store has no discount mechanism, so gross sales already exclude discounts.
-  const netRevenueMinor = grossSalesMinor + shippingRevenueMinor - refundsMinor;
+  const netRevenueMinor = grossSalesMinor - refundsMinor;
 
   const cogsValues = recognised.map(orderCogsMinor);
   const ordersMissingCogs = cogsValues.filter((value) => value === null).length;
   const cogsMinor = sum(cogsValues.map((value) => value ?? 0));
 
-  const deliveryCostValues = recognised.map(orderDeliveryCostMinor);
-  const deliveredOrdersMissingDeliveryCost = deliveryCostValues.filter((value) => value === null).length;
-  const deliveryCostMinor = sum(deliveryCostValues.map((value) => value ?? 0));
+
+  /**
+   * Frais de retour : la SEULE livraison que la boutique paie reellement.
+   *
+   * Sur une commande livree, le client paie le transport et le livreur le remet a ZR : rien
+   * ne sort de la boutique. Un colis qui revient est l'exception -- le client n'a rien paye,
+   * et ZR facture quand meme le retour, preleve sur le compte.
+   *
+   * C'etait aussi le seul cout de livraison qui n'etait compte nulle part, parce que les couts
+   * n'etaient additionnes que sur les commandes LIVREES. Une commande retournee n'en etait pas
+   * une : son cout disparaissait purement et simplement.
+   */
+  const returnFeesMinor = sum(orders.map((order) => order.deliveryCost?.returnCostCents ?? 0));
+  const cameBackOrders = orders.filter((order) => order.status === "returned" || CANCELLED.includes(order.status));
+  const failedDeliveriesMissingCost = cameBackOrders.filter((order) => order.deliveryCost === null).length;
 
   const grossProfitMinor = netRevenueMinor - cogsMinor;
   // No payment-processing fees exist: the store is cash on delivery only.
-  const variableCostsMinor = deliveryCostMinor;
+  const variableCostsMinor = returnFeesMinor;
   const contributionBeforeAdsMinor = netRevenueMinor - cogsMinor - variableCostsMinor;
   const contributionAfterAdsMinor = adSpendMinor === null ? null : contributionBeforeAdsMinor - adSpendMinor;
   const opexMinor = operatingExpensesMinor(expenses, since, until);
@@ -151,7 +210,7 @@ export function revenueKpis(input: PeriodInput): { kpis: RevenueKpis; completene
 
   const notes: string[] = [];
   if (ordersMissingCogs > 0) notes.push(`${ordersMissingCogs} commande(s) livrée(s) sans coût produit : le profit brut est surestimé.`);
-  if (deliveredOrdersMissingDeliveryCost > 0) notes.push(`${deliveredOrdersMissingDeliveryCost} commande(s) livrée(s) sans coût de livraison réel : la marge de contribution est surestimée.`);
+  if (failedDeliveriesMissingCost > 0) notes.push(`${failedDeliveriesMissingCost} commande(s) retournée(s) ou refusée(s) sans frais de retour enregistrés : la marge de contribution est surestimée.`);
   if (adSpendMinor === null) notes.push("Dépense publicitaire non convertie en DZD : profit après publicité, ROI et capital indisponibles.");
 
   return {
@@ -159,13 +218,14 @@ export function revenueKpis(input: PeriodInput): { kpis: RevenueKpis; completene
       orderCount: orders.length,
       validOrders: recognised.length,
       grossSalesMinor,
-      shippingRevenueMinor,
+      shippingCollectedForCarrierMinor,
       refundsMinor,
       netRevenueMinor,
       cogsMinor,
       grossProfitMinor,
       grossMarginPercent: percent(grossProfitMinor, netRevenueMinor),
       variableCostsMinor,
+      failedDeliveryCostMinor: returnFeesMinor,
       contributionBeforeAdsMinor,
       contributionAfterAdsMinor,
       operatingExpensesMinor: opexMinor,
@@ -183,9 +243,9 @@ export function revenueKpis(input: PeriodInput): { kpis: RevenueKpis; completene
     },
     completeness: {
       ordersMissingCogs,
-      deliveredOrdersMissingDeliveryCost,
+      failedDeliveriesMissingReturnCost: failedDeliveriesMissingCost,
       adSpendConverted: adSpendMinor !== null,
-      complete: ordersMissingCogs === 0 && deliveredOrdersMissingDeliveryCost === 0 && adSpendMinor !== null,
+      complete: ordersMissingCogs === 0 && failedDeliveriesMissingCost === 0 && adSpendMinor !== null,
       notes,
     },
   };
@@ -212,11 +272,19 @@ export type CodKpis = {
   confirmationPerformance: Array<{ adminId: number | null; handled: number; confirmed: number; ratePercent: number | null }>;
   medianHoursToConfirm: number | null;
   medianDaysToDeliver: number | null;
-  shippingRevenueMinor: number;
+  /** Frais de livraison encaisses par les livreurs pour le compte de ZR. Pas un revenu. */
+  shippingCollectedForCarrierMinor: number;
   outboundDeliveryCostMinor: number;
   returnDeliveryCostMinor: number;
-  shippingFeeDifferenceMinor: number;
-  shippingFeeDifferencePerDeliveredMinor: number | null;
+  /**
+   * Resultat net du transport pour la boutique, sur la periode.
+   *
+   * Normalement negatif ou nul : la boutique facture au client exactement ce que ZR prend, donc
+   * l'aller se neutralise et il ne reste que les retours, qui sont a sa charge. Un resultat
+   * positif signifie que le tarif affiche au client depasse celui de ZR.
+   */
+  netDeliveryResultMinor: number;
+  netDeliveryResultPerDeliveredMinor: number | null;
 };
 
 function hoursBetween(from: string, to: string): number | null {
@@ -272,10 +340,10 @@ export function codKpis(orders: Order[]): CodKpis {
   });
 
   const deliveredOrders = orders.filter((order) => order.status === "delivered");
-  const shippingRevenueMinor = sum(deliveredOrders.map((order) => order.shippingCents));
+  const shippingCollectedForCarrierMinor = sum(deliveredOrders.map((order) => order.shippingCents));
   const outboundDeliveryCostMinor = sum(orders.map((order) => order.deliveryCost?.carrierCostCents ?? 0));
   const returnDeliveryCostMinor = sum(orders.map((order) => order.deliveryCost?.returnCostCents ?? 0));
-  const shippingFeeDifferenceMinor = shippingRevenueMinor - outboundDeliveryCostMinor - returnDeliveryCostMinor;
+  const netDeliveryResultMinor = shippingCollectedForCarrierMinor - outboundDeliveryCostMinor - returnDeliveryCostMinor;
 
   return {
     placed,
@@ -297,11 +365,11 @@ export function codKpis(orders: Order[]): CodKpis {
     })).sort((a, b) => b.handled - a.handled),
     medianHoursToConfirm: median(confirmDurations),
     medianDaysToDeliver: median(deliverDurations),
-    shippingRevenueMinor,
+    shippingCollectedForCarrierMinor,
     outboundDeliveryCostMinor,
     returnDeliveryCostMinor,
-    shippingFeeDifferenceMinor,
-    shippingFeeDifferencePerDeliveredMinor: perUnitMinor(shippingFeeDifferenceMinor, delivered),
+    netDeliveryResultMinor,
+    netDeliveryResultPerDeliveredMinor: perUnitMinor(netDeliveryResultMinor, delivered),
   };
 }
 
@@ -364,7 +432,7 @@ export function customerKpis(orders: Order[], priorOrders: Order[], netProfitMin
     if (gap !== null) secondPurchaseGaps.push(gap / 24);
   }
 
-  const netRevenueMinor = sum(recognised.map((order) => order.subtotalCents + order.shippingCents - orderRefundsMinor(order)));
+  const netRevenueMinor = sum(recognised.map(orderStoreRevenueMinor));
 
   return {
     uniqueBuyers,
@@ -428,9 +496,11 @@ export function dailySeries(orders: Order[], spendByDay: Map<string, number | nu
     const date = new Date(cursor).toISOString().slice(0, 10);
     const dayOrders = byDay.get(date) ?? [];
     const recognised = dayOrders.filter(isRecognised);
-    const netRevenueMinor = sum(recognised.map((order) => order.subtotalCents + order.shippingCents - orderRefundsMinor(order)));
+    const netRevenueMinor = sum(recognised.map(orderStoreRevenueMinor));
     const cogsMinor = sum(recognised.map((order) => orderCogsMinor(order) ?? 0));
-    const deliveryMinor = sum(recognised.map((order) => orderDeliveryCostMinor(order) ?? 0));
+    // Les retours de la journee, y compris ceux des commandes non livrees : eux sont a la charge
+    // de la boutique, et ils ne se rattachent a aucun revenu.
+    const returnFeesMinor = sum(dayOrders.map(orderReturnFeeMinor));
     const spendMinor = spendByDay.has(date) ? spendByDay.get(date) ?? null : 0;
     points.push({
       date,
@@ -438,7 +508,7 @@ export function dailySeries(orders: Order[], spendByDay: Map<string, number | nu
       deliveredOrders: recognised.length,
       netRevenueMinor,
       cogsMinor,
-      contributionMinor: netRevenueMinor - cogsMinor - deliveryMinor,
+      contributionMinor: netRevenueMinor - cogsMinor - returnFeesMinor,
       spendMinor,
       // Capital deployed that day: goods sold plus advertising.
       capitalMinor: spendMinor === null ? null : cogsMinor + spendMinor,
@@ -475,12 +545,11 @@ export function attributedTotals(orders: Order[], model: AttributionModel = "las
   const recognised = orders.filter(isRecognised);
   const attributed = recognised.filter((order) => isMetaAttributed(order, model));
 
-  const netRevenueMinor = sum(attributed.map((order) => order.subtotalCents + order.shippingCents - orderRefundsMinor(order)));
+  const netRevenueMinor = sum(attributed.map(orderStoreRevenueMinor));
   const cogsValues = attributed.map(orderCogsMinor);
-  const deliveryValues = attributed.map(orderDeliveryCostMinor);
-  const costsComplete = !cogsValues.includes(null) && !deliveryValues.includes(null);
+  const costsComplete = !cogsValues.includes(null);
   const contributionMinor = costsComplete
-    ? netRevenueMinor - sum(cogsValues.map((value) => value ?? 0)) - sum(deliveryValues.map((value) => value ?? 0))
+    ? netRevenueMinor - sum(cogsValues.map((value) => value ?? 0)) - sum(attributed.map(orderReturnFeeMinor))
     : null;
 
   return {

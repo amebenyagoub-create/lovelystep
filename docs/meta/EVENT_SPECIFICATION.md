@@ -52,6 +52,23 @@ Le revenu réellement reconnu suit la règle livré/encaissé et se calcule depu
 (et les tables financières de la phase 2), jamais depuis les événements Meta. Les deux chiffres
 sont volontairement différents et ne doivent jamais être comparés directement.
 
+### `value` = prix des articles, livraison exclue
+
+**Changé le 2026-09-09.** `value` valait auparavant `totalCents`, c'est-à-dire le montant que le
+livreur encaisse chez le client. Ce n'est pas ce que la boutique reçoit : le livreur garde les
+frais de livraison pour ZR Express et ne crédite le compte que du prix des articles. Une commande
+de 6 800 DA + 700 DA de livraison était déclarée à 7 500 DA.
+
+Deux conséquences de l'ancienne valeur :
+
+- le ROAS du gestionnaire de publicités était surévalué d'environ 10 %, et l'enchère à la valeur
+  optimisait sur un montant qui n'appartenait pas à la boutique ;
+- `value` contredisait `contents`, dont la somme des `item_price × quantity` vaut exactement le
+  sous-total.
+
+`value` vaut donc `subtotalCents`. **Attendez-vous à une marche dans les courbes Meta à la date
+ci-dessus** : ce n'est pas une chute de performance, c'est la correction d'une surévaluation.
+
 ## `content_ids` et catalogue
 
 `content_id` = **slug produit** (`lib/meta/events.ts`, fonction `contentId`).

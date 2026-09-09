@@ -49,30 +49,52 @@ check("median handles even, odd and empty sets", () => {
 // --- revenue chain, against the real engine ---------------------------------------
 const baseOrder = order({ deliveryCost: { orderId: 1, carrierCostCents: 45000, returnCostCents: 0, source: "manual", updatedAt: "" } });
 
-check("net revenue = gross sales + shipping - refunds", () => {
+check("le chiffre d'affaires exclut la livraison : cet argent est celui de ZR", () => {
+  // Le livreur encaisse 5 600, garde 600 pour ZR, credite 5 000 sur le compte de la boutique.
   const { kpis } = revenueKpis({ orders: [baseOrder], expenses: [], adSpendMinor: 0, ...period });
   assert.equal(kpis.grossSalesMinor, 500000);
-  assert.equal(kpis.shippingRevenueMinor, 60000);
-  assert.equal(kpis.netRevenueMinor, 560000);
+  assert.equal(kpis.shippingCollectedForCarrierMinor, 60000, "montre a part, jamais additionne");
+  assert.equal(kpis.netRevenueMinor, 500000);
 });
 
 check("gross profit = net revenue - COGS", () => {
   const { kpis } = revenueKpis({ orders: [baseOrder], expenses: [], adSpendMinor: 0, ...period });
   assert.equal(kpis.cogsMinor, 200000);
-  assert.equal(kpis.grossProfitMinor, 360000);
+  assert.equal(kpis.grossProfitMinor, 300000);
 });
 
-check("contribution before ads subtracts the real delivery cost", () => {
+check("les frais de retour d'une commande non livree sont un cout reel", () => {
+  // La livraison est payee par le client : sur une commande livree elle se compense.
+  // Le retour ne se compense pas -- le client n'a rien paye, le transporteur facture quand meme.
+  const delivered = order({ status: "delivered", deliveryCost: { orderId: 1, carrierCostCents: 45000, returnCostCents: 0, source: "manual", updatedAt: "" } });
+  const returned = order({ id: 2, status: "returned", deliveryCost: { orderId: 2, carrierCostCents: 0, returnCostCents: 15000, source: "auto", updatedAt: "" } });
+  const alone = revenueKpis({ orders: [delivered], expenses: [], adSpendMinor: 0, ...period }).kpis;
+  const withReturn = revenueKpis({ orders: [delivered, returned], expenses: [], adSpendMinor: 0, ...period }).kpis;
+  assert.equal(withReturn.failedDeliveryCostMinor, 15000);
+  // Le retour n'apporte aucun revenu reconnu : il ne doit que retrancher.
+  assert.equal(withReturn.netRevenueMinor, alone.netRevenueMinor);
+  assert.equal(withReturn.contributionBeforeAdsMinor, alone.contributionBeforeAdsMinor - 15000);
+});
+
+check("une commande retournee sans frais enregistres est signalee, pas comptee a zero", () => {
+  const delivered = order({ status: "delivered", deliveryCost: { orderId: 1, carrierCostCents: 45000, returnCostCents: 0, source: "manual", updatedAt: "" } });
+  const returned = order({ id: 2, status: "returned", deliveryCost: null });
+  const { completeness } = revenueKpis({ orders: [delivered, returned], expenses: [], adSpendMinor: 0, ...period });
+  assert.ok(completeness.notes.some((note) => note.includes("frais de retour")));
+});
+
+check("une livraison reussie ne retranche rien : elle n'a rien coute a la boutique", () => {
   const { kpis } = revenueKpis({ orders: [baseOrder], expenses: [], adSpendMinor: 0, ...period });
-  assert.equal(kpis.contributionBeforeAdsMinor, 315000);
+  assert.equal(kpis.variableCostsMinor, 0);
+  assert.equal(kpis.contributionBeforeAdsMinor, 300000);
 });
 
 check("contribution after ads and net profit chain correctly", () => {
   const expenses = [{ id: 1, category: "Loyer", amountCents: 3000000, currency: "DZD", recurrence: "one_time", costType: "fixed", effectiveFrom: "2026-08-05", effectiveTo: null, allocationMethod: "revenue_weighted", notes: "", source: "manual", createdAt: "", updatedAt: "" }];
   const { kpis } = revenueKpis({ orders: [baseOrder], expenses, adSpendMinor: 100000, ...period });
-  assert.equal(kpis.contributionAfterAdsMinor, 215000);
+  assert.equal(kpis.contributionAfterAdsMinor, 200000);
   assert.equal(kpis.operatingExpensesMinor, 3000000);
-  assert.equal(kpis.netProfitMinor, 215000 - 3000000);
+  assert.equal(kpis.netProfitMinor, 200000 - 3000000);
 });
 
 check("ROI = net profit / capital invested (COGS + ad spend)", () => {
@@ -83,7 +105,8 @@ check("ROI = net profit / capital invested (COGS + ad spend)", () => {
 
 check("break-even ROAS = 1 / contribution margin ratio", () => {
   const { kpis } = revenueKpis({ orders: [baseOrder], expenses: [], adSpendMinor: 0, ...period });
-  assert.equal(kpis.breakEvenRoas, 1.78);
+  // 300 000 / 500 000 = 0,6 de marge de contribution -> 1 / 0,6 = 1,67.
+  assert.equal(kpis.breakEvenRoas, 1.67);
 });
 
 check("a loss-making period yields no break-even ROAS instead of a negative one", () => {
@@ -98,7 +121,7 @@ check("AOV and profit per order use recognised orders only", () => {
   const { kpis } = revenueKpis({ orders: [baseOrder, pending], expenses: [], adSpendMinor: 0, ...period });
   assert.equal(kpis.orderCount, 2);
   assert.equal(kpis.validOrders, 1, "only delivered orders are recognised");
-  assert.equal(kpis.aovMinor, 560000);
+  assert.equal(kpis.aovMinor, 500000, "le panier moyen ne compte pas l'argent de ZR");
 });
 
 check("non-delivered orders contribute no revenue", () => {
@@ -112,7 +135,7 @@ check("partial refunds reduce net revenue exactly once", () => {
   const refunded = order({ refunds: [{ id: 1, orderId: 1, amountCents: 100000, reason: "", createdByAdminId: 1, createdAt: "" }, { id: 2, orderId: 1, amountCents: 60000, reason: "", createdByAdminId: 1, createdAt: "" }] });
   const { kpis } = revenueKpis({ orders: [refunded], expenses: [], adSpendMinor: 0, ...period });
   assert.equal(kpis.refundsMinor, 160000);
-  assert.equal(kpis.netRevenueMinor, 400000);
+  assert.equal(kpis.netRevenueMinor, 340000, "5 000 d'articles moins 1 600 rembourses");
 });
 
 check("upsell counts revenue from lines beyond the first item", () => {
@@ -137,9 +160,19 @@ check("a missing unit cost is reported, not silently treated as free", () => {
   assert.equal(kpis.cogsMinor, 0, "the total excludes it, and completeness says so");
 });
 
-check("a missing delivery cost is reported", () => {
-  const { completeness } = revenueKpis({ orders: [order()], expenses: [], adSpendMinor: 0, ...period });
-  assert.equal(completeness.deliveredOrdersMissingDeliveryCost, 1);
+check("une livraison reussie ne coute rien a la boutique : c'est le client qui l'a payee", () => {
+  // 6 800 d'articles + 700 de livraison encaisses : seuls les 6 800 arrivent sur le compte ZR.
+  const { kpis, completeness } = revenueKpis({ orders: [order()], expenses: [], adSpendMinor: 0, ...period });
+  assert.equal(kpis.netRevenueMinor, 500000, "les frais de livraison ne sont pas du chiffre d'affaires");
+  assert.equal(kpis.shippingCollectedForCarrierMinor, 60000, "ils sont montres a part, pour information");
+  assert.equal(kpis.variableCostsMinor, 0, "et ne sont donc pas non plus un cout");
+  assert.equal(completeness.complete, true, "il ne manque aucun cout de transport a une livraison reussie");
+});
+
+check("un retour sans frais enregistres rend la periode incomplete", () => {
+  const returned = order({ id: 99, status: "returned", deliveryCost: null });
+  const { completeness } = revenueKpis({ orders: [baseOrder, returned], expenses: [], adSpendMinor: 0, ...period });
+  assert.equal(completeness.failedDeliveriesMissingReturnCost, 1);
   assert.equal(completeness.complete, false);
 });
 
@@ -151,7 +184,7 @@ check("unconverted ad spend disables profit-after-ads, ROI and capital", () => {
   assert.equal(kpis.capitalInvestedMinor, null);
   assert.equal(completeness.adSpendConverted, false);
   // Figures that do not depend on ad spend stay available.
-  assert.equal(kpis.grossProfitMinor, 360000);
+  assert.equal(kpis.grossProfitMinor, 300000);
 });
 
 check("a fully-costed period reports as complete", () => {
@@ -218,12 +251,12 @@ check("per-agent confirmation performance divides by what that agent handled", (
   assert.equal(agent9.ratePercent, 100);
 });
 
-check("shipping fee difference = shipping revenue - outbound - return costs", () => {
+check("resultat net transport = encaisse pour ZR - reverse a ZR - retours", () => {
   const shipped = order({ status: "delivered", deliveryCost: { orderId: 1, carrierCostCents: 45000, returnCostCents: 25000, source: "manual", updatedAt: "" } });
   const kpis = codKpis([shipped]);
-  assert.equal(kpis.shippingRevenueMinor, 60000);
-  assert.equal(kpis.shippingFeeDifferenceMinor, -10000);
-  assert.equal(kpis.shippingFeeDifferencePerDeliveredMinor, -10000);
+  assert.equal(kpis.shippingCollectedForCarrierMinor, 60000);
+  assert.equal(kpis.netDeliveryResultMinor, -10000);
+  assert.equal(kpis.netDeliveryResultPerDeliveredMinor, -10000);
 });
 
 check("an empty funnel yields nulls, not zeros or Infinity", () => {

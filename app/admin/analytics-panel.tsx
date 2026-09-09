@@ -12,7 +12,7 @@ type KpiResponse = {
   ads: Record<string, Nullable>;
   attribution: { model: string; attributedOrders: number; attributedNetRevenueMinor: number; attributedContributionMinor: Nullable; ordersWithoutAttribution: number; coveragePercent: Nullable };
   series: Array<{ date: string; orders: number; deliveredOrders: number; netRevenueMinor: number; cogsMinor: number; contributionMinor: number; spendMinor: Nullable; capitalMinor: Nullable }>;
-  completeness: { complete: boolean; notes: string[]; ordersMissingCogs: number; deliveredOrdersMissingDeliveryCost: number; adSpendConverted: boolean };
+  completeness: { complete: boolean; notes: string[]; ordersMissingCogs: number; failedDeliveriesMissingReturnCost: number; adSpendConverted: boolean };
   fx: { missingRates: Array<{ date: string; currency: string }> };
 };
 
@@ -158,7 +158,7 @@ export default function AnalyticsPanel() {
             <div><dt>Performance de livraison</dt><dd>{pct(cod.deliveryPerformancePercent as Nullable)}</dd></div>
             <div><dt>Délai médian de confirmation</dt><dd>{num(cod.medianHoursToConfirm as Nullable, " h", 1)}</dd></div>
             <div><dt>Délai médian de livraison</dt><dd>{num(cod.medianDaysToDeliver as Nullable, " j", 1)}</dd></div>
-            <div><dt>Écart frais de livraison</dt><dd>{money(cod.shippingFeeDifferenceMinor as Nullable)}</dd></div>
+            <div><dt title="Le client paie la livraison au livreur, qui la remet à ZR. Seuls les retours restent à votre charge.">Résultat net transport</dt><dd>{money(cod.netDeliveryResultMinor as Nullable)}</dd></div>
             <div><dt>Écart par commande livrée</dt><dd>{money(cod.shippingFeeDifferencePerDeliveredMinor as Nullable)}</dd></div>
           </dl>
           {Array.isArray(cod.confirmationPerformance) && cod.confirmationPerformance.length > 0 && <>

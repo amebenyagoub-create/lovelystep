@@ -538,3 +538,8 @@
    height column cross-checked against measured garments, and a 90 cm child needs the 100. */
 .size-options button .size-age{display:block;font-family:"Fredoka",sans-serif;font-size:13px;line-height:1.15;color:var(--navy);margin-bottom:4px}
 .size-options button.selected .size-age{color:var(--coral)}
+
+/* Inventory status in the admin product list. */
+.admin-product-list .product-stock{margin-top:5px;color:#24724a;font-weight:800}
+.admin-product-list .product-stock.low{color:#9a6500}
+.admin-product-list .product-stock.empty{color:#a13931}

@@ -106,7 +106,8 @@ function historicalEconomics(orders: Order[]): { contribution: number | null; re
   const values = orders.flatMap((order) => {
     if (order.status !== "delivered" || !order.deliveryCost || order.items.some((item) => item.unitCostCents == null)) return [];
     const refunds = order.refunds.reduce((total, refund) => total + refund.amountCents, 0);
-    const revenue = order.subtotalCents + order.shippingCents - refunds;
+    // Hors livraison : le livreur garde ces frais pour ZR, ils n'arrivent jamais sur le compte.
+    const revenue = order.subtotalCents - refunds;
     const costs = order.items.reduce((total, item) => total + (item.unitCostCents ?? 0) * item.quantity, 0)
       + order.deliveryCost.carrierCostCents + order.deliveryCost.returnCostCents;
     return [{ revenue, contribution: revenue - costs }];

@@ -99,21 +99,30 @@ check("only Meta-attributed orders count toward attributed revenue", () => {
   ];
   const totals = attributedTotals(orders, "last");
   assert.equal(totals.attributedOrders, 1);
-  assert.equal(totals.attributedNetRevenueMinor, 560000);
+  assert.equal(totals.attributedNetRevenueMinor, 500000, "hors livraison : cet argent est celui de ZR");
   assert.equal(totals.ordersWithoutAttribution, 1);
 });
 
 check("attributed contribution uses the same cost logic as overall profit", () => {
   const totals = attributedTotals([order({ attribution: attribution({ isMetaLastTouch: true }) })], "last");
-  // 560000 net - 200000 COGS - 45000 delivery
-  assert.equal(totals.attributedContributionMinor, 315000);
+  // 500 000 encaisses sur le compte ZR - 200 000 de cout d'achat. L'aller n'a rien coute.
+  assert.equal(totals.attributedContributionMinor, 300000);
 });
 
 check("attributed contribution is null when an attributed order lacks cost data", () => {
-  const noCost = order({ attribution: attribution({ isMetaLastTouch: true }), deliveryCost: null });
+  const noCost = order({
+    attribution: attribution({ isMetaLastTouch: true }),
+    items: [{ productId: 1, slug: "p", name: "P", image: "", size: "80", quantity: 2, unitPriceCents: 250000, unitCostCents: null }],
+  });
   const totals = attributedTotals([noCost], "last");
   assert.equal(totals.attributedContributionMinor, null, "an incomplete margin must not be published");
-  assert.equal(totals.attributedNetRevenueMinor, 560000, "revenue is still known");
+  assert.equal(totals.attributedNetRevenueMinor, 500000, "revenue is still known");
+});
+
+check("une livraison sans cout enregistre ne rend plus la marge incomplete", () => {
+  // L'aller est paye par le client : son absence dans la table des couts n'enleve rien.
+  const noDelivery = order({ attribution: attribution({ isMetaLastTouch: true }), deliveryCost: null });
+  assert.equal(attributedTotals([noDelivery], "last").attributedContributionMinor, 300000);
 });
 
 check("the first-touch model selects different orders than last-touch", () => {
@@ -142,7 +151,7 @@ check("refunds reduce attributed revenue", () => {
     attribution: attribution({ isMetaLastTouch: true }),
     refunds: [{ id: 1, orderId: 1, amountCents: 60000, reason: "", createdByAdminId: 1, createdAt: "" }],
   });
-  assert.equal(attributedTotals([refunded], "last").attributedNetRevenueMinor, 500000);
+  assert.equal(attributedTotals([refunded], "last").attributedNetRevenueMinor, 440000);
 });
 
 check("coverage is null rather than 0% when there are no recognised orders", () => {

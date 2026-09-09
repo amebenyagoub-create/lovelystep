@@ -97,55 +97,60 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
 
   const cogsValues = deliveredOrders.map(orderCogs);
   const ordersMissingCogs = orders.filter((order) => pendingOrder(order) || order.status === "delivered").filter((order) => orderCogs(order) === null).length;
-  const ordersMissingDeliveryCost = orders.filter((order) => (order.status === "delivered" || order.status === "returned" || wasShipped(order)) && !order.deliveryCost).length;
+  /**
+   * Seul un colis REVENU peut manquer un cout de transport.
+   *
+   * La contrainte portait avant sur toute commande expediee. Or l'aller est paye par le client
+   * au livreur, qui le remet a ZR : une livraison reussie ne coute rien a la boutique, et son
+   * absence dans la table des couts n'enleve donc rien a la marge. Exiger cette donnee bloquait
+   * le verdict de campagnes dont il ne manquait rien.
+   */
+  const ordersMissingDeliveryCost = orders.filter((order) => (order.status === "returned" || order.status === "refused") && !order.deliveryCost).length;
   const refundsMinor = sum(deliveredOrders.flatMap((order) => order.refunds.map((refund) => refund.amountCents)));
-  const deliveredRevenueMinor = sum(deliveredOrders.map((order) => order.subtotalCents + order.shippingCents)) - refundsMinor;
+  /**
+   * Ce qui arrive reellement sur le compte ZR de la boutique : le prix des articles.
+   *
+   * Le client paie 7 500 (6 800 d'articles + 700 de livraison), le livreur garde les 700 pour
+   * ZR et ne credite que 6 800. Compter les 700 en chiffre d'affaires puis les re-soustraire en
+   * frais de transport donnait le bon total mais faussait tous les ratios batis dessus --
+   * panier moyen, marge par livraison, et donc le CPA cible.
+   */
+  const deliveredRevenueMinor = sum(deliveredOrders.map((order) => order.subtotalCents)) - refundsMinor;
   const cogsMinor = sum(cogsValues.map((value) => value ?? 0));
-  const deliveryCostsMinor = sum(orders.map((order) => order.deliveryCost?.carrierCostCents ?? 0));
   const returnCostsMinor = sum(orders.map((order) => order.deliveryCost?.returnCostCents ?? 0));
   const costDataComplete = ordersMissingCogs === 0 && ordersMissingDeliveryCost === 0;
-  const contributionBeforeAdsPartial = deliveredRevenueMinor - cogsMinor - deliveryCostsMinor - returnCostsMinor - allocatedVariableCostsMinor;
+  const contributionBeforeAdsPartial = deliveredRevenueMinor - cogsMinor - returnCostsMinor - allocatedVariableCostsMinor;
   const contributionBeforeAdsMinor = costDataComplete ? contributionBeforeAdsPartial : null;
   const actualNetProfitMinor = contributionBeforeAdsMinor === null || spendMinor === null ? null : contributionBeforeAdsMinor - spendMinor;
 
-  const knownCarrierCosts = orders.flatMap((order) => order.deliveryCost ? [order.deliveryCost.carrierCostCents] : []);
   /**
-   * What the carrier costs on an order that has no recorded cost yet.
+   * Le transport de l'aller a disparu de tous les calculs ci-dessous, et c'est voulu.
    *
-   * The delivery fee is passed straight to ZR, so an order owes exactly the fee it charged.
-   * This previously fell back to the average of known carrier costs — which is 0 before any
-   * order ships — and `subtotal + shipping - cogs - 0` turned the pass-through fee into profit.
-   * On a 2,750 DZD margin with an ~875 DZD fee that inflated break-even to ~3,625 and handed
-   * back a target CPA 70% too generous, which is the direction that loses money quietly.
+   * Il fallait auparavant le deviner commande par commande -- fee in, fee out -- parce que le
+   * chiffre d'affaires contenait les frais de livraison qu'il fallait ensuite retrancher. Se
+   * tromper d'un cote ou de l'autre transformait un simple encaissement pour le compte de ZR
+   * en benefice, et gonflait le CPA cible de pres de 70 %.
    *
-   * Same rule as syncOrderDeliveryCost in lib/db-postgres.ts: fee in, fee out, margin remains.
-   *
-   * A recorded 0 is treated as "not billed yet", not "free": syncOrderDeliveryCost legitimately
-   * writes 0 for an order that has not shipped, and every use of this value below is a forward
-   * projection of what a DELIVERED order will cost. Reading that 0 literally would put the fee
-   * back into profit the moment the costs table was populated. A refused or returned parcel is
-   * handled separately above, where the send leg genuinely is not charged.
+   * Le revenu ne contient plus cet argent : il n'y a donc plus rien a retrancher, ni a deviner.
+   * Ne reste que le retour, qui est un vrai debit sur le compte de la boutique.
    */
-  const carrierCostOf = (order: Order): number => {
-    const recorded = order.deliveryCost?.carrierCostCents;
-    return recorded != null && recorded > 0 ? recorded : order.shippingCents;
-  };
   let expectedContribution = -allocatedVariableCostsMinor;
   for (const order of orders) {
     const cogs = orderCogs(order);
     if (order.status === "delivered") {
-      expectedContribution += order.subtotalCents + order.shippingCents - sum(order.refunds.map((refund) => refund.amountCents)) - (cogs ?? 0)
-        - carrierCostOf(order) - (order.deliveryCost?.returnCostCents ?? 0);
+      expectedContribution += order.subtotalCents - sum(order.refunds.map((refund) => refund.amountCents)) - (cogs ?? 0)
+        - (order.deliveryCost?.returnCostCents ?? 0);
       continue;
     }
     if (["returned", "refused", "cancelled"].includes(order.status)) {
-      expectedContribution -= (order.deliveryCost?.carrierCostCents ?? 0) + (order.deliveryCost?.returnCostCents ?? 0);
+      // Aucun revenu, et le seul debit reel est le retour : l'aller n'a jamais ete facture.
+      expectedContribution -= order.deliveryCost?.returnCostCents ?? 0;
       continue;
     }
     // Une commande bloquee n'apporte ni revenu ni cout tant qu'elle n'est pas debloquee.
     if (isBlocked(order)) continue;
     const outcomeProbability = was(order, "confirmed") ? deliveryProbability : confirmationProbability * deliveryProbability;
-    expectedContribution += outcomeProbability * (order.subtotalCents + order.shippingCents - (cogs ?? 0) - carrierCostOf(order));
+    expectedContribution += outcomeProbability * (order.subtotalCents - (cogs ?? 0));
   }
   const expectedNetProfitMinor = costDataComplete && spendMinor !== null ? Math.round(expectedContribution - spendMinor) : null;
   const outcomesIncomplete = pending > 0 || deliveryOutcomes < confirmedOrders.filter((order) => !isBlocked(order)).length;
@@ -172,14 +177,13 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
    */
   const deliveredCogsComplete = cogsValues.every((value) => value !== null);
   const contributionPerDelivered = !deliveredOrders.length || !deliveredCogsComplete ? null : Math.round(sum(deliveredOrders.map((order) =>
-    order.subtotalCents + order.shippingCents
+    order.subtotalCents
     - sum(order.refunds.map((refund) => refund.amountCents))
-    - (orderCogs(order) ?? 0)
-    - carrierCostOf(order))) / deliveredOrders.length);
+    - (orderCogs(order) ?? 0))) / deliveredOrders.length);
   const fallbackContributionPerOrder = (() => {
     const completeOrders = orders.filter((order) => orderCogs(order) !== null);
     if (!completeOrders.length) return null;
-    return Math.round(sum(completeOrders.map((order) => order.subtotalCents + order.shippingCents - (orderCogs(order) ?? 0) - carrierCostOf(order))) / completeOrders.length);
+    return Math.round(sum(completeOrders.map((order) => order.subtotalCents - (orderCogs(order) ?? 0))) / completeOrders.length);
   })();
   const breakEvenDeliveredCpaMinor = contributionPerDelivered ?? fallbackContributionPerOrder ?? input.baselineContributionPerDeliveredOrderMinor ?? null;
   const targetDeliveredCpaMinor = breakEvenDeliveredCpaMinor === null ? null : Math.max(0, breakEvenDeliveredCpaMinor - thresholds.targetNetProfitPerDeliveredOrderMinor);
@@ -194,13 +198,12 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   const notes: string[] = [];
   if (spendMissing) notes.push("At least one daily FX rate is missing; spend and profitability are unavailable.");
   if (ordersMissingCogs) notes.push(`${ordersMissingCogs} campaign order(s) are missing product-cost snapshots.`);
-  if (ordersMissingDeliveryCost) notes.push(`${ordersMissingDeliveryCost} fulfilled order(s) are missing actual delivery costs.`);
+  if (ordersMissingDeliveryCost) notes.push(`${ordersMissingDeliveryCost} commande(s) revenue(s) sans frais de retour enregistres : la marge est surestimee.`);
   if (outcomesIncomplete) notes.push("Delivery outcomes are incomplete; expected profit uses historical confirmation and delivery probabilities.");
   if (targetDeliveredCpaMinor === 0 && breakEvenDeliveredCpaMinor !== null) {
     notes.push(`CPA cible a 0 : le profit exige par commande livree (${Math.round(thresholds.targetNetProfitPerDeliveredOrderMinor / 100)} DZD) depasse la marge disponible (${Math.round(breakEvenDeliveredCpaMinor / 100)} DZD). Aucune campagne ne peut atteindre cet objectif — baissez l'exigence de profit ou verifiez les couts produit.`);
   }
   if (input.ratesAreAssumed) notes.push(`Aucune commande resolue : les taux de confirmation (${Math.round(historicalConfirmationRatePercent)}%) et de livraison (${Math.round(historicalDeliveryRatePercent)}%) sont une HYPOTHESE, pas une mesure. Le CPA cible et le verdict en dependent entierement.`);
-  if (!knownCarrierCosts.length && pending > 0) notes.push("No campaign carrier-cost history is available for pending-order estimates.");
   if (blocked) notes.push(`${blocked} commande(s) bloquee(s) (ZR_ERROR, NO_REPLY, STALLED, HUMAN) : exclues des previsions, elles attendent une intervention.`);
   if (orders.length) notes.push("Store orders are matched to Meta campaigns by normalized utm_campaign name.");
 
@@ -262,7 +265,8 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
     economics: {
       deliveredRevenueMinor,
       cogsMinor,
-      deliveryCostsMinor,
+      // L'aller n'est jamais debite a la boutique : le seul transport a sa charge est le retour.
+      deliveryCostsMinor: returnCostsMinor,
       returnCostsMinor,
       refundsMinor,
       allocatedVariableCostsMinor,

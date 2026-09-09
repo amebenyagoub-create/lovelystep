@@ -13,6 +13,7 @@ import MetaPanel from "./meta-panel";
 type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null }; lastScheduledSync: string | null }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
 type Tab = "overview" | "analytics" | "campaigns" | "meta" | "orders" | "products" | "store" | "delivery";
 const money = (cents: number) => new Intl.NumberFormat("fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
+const productStock = (product: Product) => (product.variants.length ? product.variants : product.sizes).reduce((total, item) => total + Math.max(0, Math.floor(Number(item.stock) || 0)), 0);
 const orderLabels: Record<OrderStatus, string> = { new: "Nouvelle", to_confirm: "À confirmer", confirmed: "Confirmée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", refused: "Refusée", returned: "Retournée", cancelled: "Annulée" };
 
 export default function AdminDashboard() {
@@ -126,7 +127,37 @@ export default function AdminDashboard() {
       {tab === "campaigns" && <CampaignIntelligencePanel csrfToken={data.csrfToken} />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
-      {tab === "products" && <section className="admin-card"><div className="card-title"><div><h2>Produits</h2><p>Les brouillons ne sont jamais visibles dans la boutique.</p></div><button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button></div><div className="admin-product-list">{data.products.map((product) => { const cover = product.images[0] || "/images/soft-days.jpg"; return <article key={product.id}><Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} /><div><strong>{product.name}</strong><span>{product.category} · {money(product.priceCents)}</span><small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small></div><span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span><div className="row-actions"><button onClick={() => setEditing(product)}>Modifier</button><button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button><button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button><button disabled={busy || product.status !== "published"} title={product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>{product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}</div></article>; })}</div></section>}
+      {tab === "products" && <section className="admin-card">
+        <div className="card-title">
+          <div>
+            <h2>Produits</h2>
+            <p>Inventaire total : {data.stats.inventoryUnits} pièce{data.stats.inventoryUnits > 1 ? "s" : ""}. Les brouillons ne sont jamais visibles dans la boutique.</p>
+          </div>
+          <button className="admin-primary" onClick={() => setEditing("new")}>+ Nouveau produit</button>
+        </div>
+        <div className="admin-product-list">{data.products.map((product) => {
+          const cover = product.images[0] || "/images/soft-days.jpg";
+          const stock = productStock(product);
+          const stockClassName = stock === 0 ? "product-stock empty" : stock <= 5 ? "product-stock low" : "product-stock";
+          return <article key={product.id}>
+            <Image src={cover} alt="" width={74} height={82} unoptimized={cover.startsWith("/api/media/")} />
+            <div>
+              <strong>{product.name}</strong>
+              <span>{product.category} · {money(product.priceCents)}</span>
+              <small>Mis à jour {new Date(product.updatedAt).toLocaleDateString("fr-FR")}</small>
+              <small className={stockClassName}>{stock === 0 ? "Rupture de stock" : `Stock restant : ${stock} pièce${stock > 1 ? "s" : ""}`}</small>
+            </div>
+            <span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span>
+            <div className="row-actions">
+              <button onClick={() => setEditing(product)}>Modifier</button>
+              <button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button>
+              <button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button>
+              <button disabled={busy || product.status !== "published"} title={product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>
+              {product.status === "published" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}
+            </div>
+          </article>;
+        })}</div>
+      </section>}
       {tab === "store" && <StorefrontEditor settings={data.storeSettings} images={[...new Set(data.products.flatMap((product) => product.images))]} csrfToken={data.csrfToken} busy={busy} onError={setError} onSave={async (settings) => { const value = await jsonRequest("/api/admin/store-settings", { method: "POST", body: JSON.stringify(settings) }); if (value) setNotice("Façade de la boutique mise à jour."); }} />}
       {tab === "delivery" && <DeliveryEditor rates={data.deliveryRates} zrExpress={data.zrExpress} busy={busy} onSyncZrExpress={async () => { const value = await jsonRequest("/api/admin/delivery/sync-zrexpress", { method: "POST" }); if (!value) return null; setNotice(`${value.syncedWilayas} wilaya(s) synchronisée(s) depuis ZR Express.`); return value.rates as DeliveryRate[]; }} onSaveRates={async (rates) => { const value = await jsonRequest("/api/admin/delivery", { method: "POST", body: JSON.stringify({ rates }) }); if (value) setNotice("Tarifs de livraison enregistrés."); }} />}
     </main>
