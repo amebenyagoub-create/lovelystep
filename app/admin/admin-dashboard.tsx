@@ -148,6 +148,7 @@ export default function AdminDashboard() {
               <small className={stockClassName}>{stock === 0 ? "Rupture de stock" : `Stock restant : ${stock} pièce${stock > 1 ? "s" : ""}`}</small>
             </div>
             <span className={`status ${product.status}`}>{product.status === "published" ? "Publié" : product.status === "draft" ? "Brouillon" : "Archivé"}</span>
+            <ProductStockBySize product={product} />
             <div className="row-actions">
               <button onClick={() => setEditing(product)}>Modifier</button>
               <button className="danger-button" disabled={busy} onClick={() => void removeProduct(product)}>Supprimer</button>
@@ -172,6 +173,27 @@ export default function AdminDashboard() {
     }} />}
     {editing && <ProductEditor product={editing === "new" ? null : editing} busy={busy} csrfToken={data.csrfToken} onError={setError} onClose={() => setEditing(null)} onSave={async (body) => { const value = await jsonRequest("/api/admin/products", { method: "POST", body: JSON.stringify(body) }); if (value) { setEditing(null); const automation = value.metaAutomation as { catalog?: boolean; pagePost?: boolean; instagramPost?: boolean } | undefined; setNotice(automation?.pagePost && automation?.instagramPost ? "Produit enregistré. Publications Facebook et Instagram programmées." : automation?.instagramPost ? "Produit enregistré. Publication Instagram programmée." : automation?.pagePost ? "Produit enregistré. Publication Facebook programmée." : automation?.catalog ? "Produit enregistré. Synchronisation du catalogue programmée." : "Produit enregistré."); } }} />}
   </div>;
+}
+
+function ProductStockBySize({ product }: { product: Product }) {
+  const entries = product.variants.length
+    ? product.variants.map((variant) => ({ color: variant.color, label: variant.size, stock: variant.stock, age: variant.age, weight: variant.weight, height: variant.height }))
+    : product.sizes.map((size) => ({ color: "", ...size }));
+
+  return <section className="product-size-stock" aria-label={`Stock par taille pour ${product.name}`}>
+    <strong>Stock par taille</strong>
+    {entries.length === 0 ? <small>Aucune taille enregistrée</small> : <div className="product-size-stock-grid">{entries.map((entry, index) => {
+      const quantity = Math.max(0, Math.floor(Number(entry.stock) || 0));
+      const age = frenchAgeLabel(entry);
+      const className = quantity === 0 ? "empty" : quantity <= 2 ? "low" : "";
+      return <div className={`product-size-stock-item ${className}`} key={`${entry.color}-${entry.label}-${index}`}>
+        <span>{entry.color || "Toutes couleurs"}</span>
+        <strong>{age === entry.label ? `Taille ${entry.label}` : age}</strong>
+        {age !== entry.label && <small>Taille {entry.label}</small>}
+        <b>{quantity}<small> pièce{quantity > 1 ? "s" : ""}</small></b>
+      </div>;
+    })}</div>}
+  </section>;
 }
 
 const localizedLabels: Array<[keyof Pick<StoreSettings, "announcement" | "heroEyebrow" | "heroTitle" | "heroAccent" | "heroDescription" | "primaryCta" | "storyTitle" | "storyDescription">, string]> = [
