@@ -120,7 +120,7 @@ function CampaignCard({ analysis }: { analysis: CampaignAnalysis }) {
         <div className="campaign-title-row"><div><span className="admin-kicker">{analysis.entity.status || "Campaign"} · {analysis.entity.objective || "objective unavailable"}</span><h2>{analysis.entity.name}</h2></div><span className={`campaign-mode ${kpis.mode}`}>{kpis.mode === "estimated" ? "Estimated outcome" : "Actual outcome"}</span></div>
         <h3>{explanation.headline}</h3>
         <p>{explanation.explanation}</p>
-        <strong className="campaign-next-action">Next action: {explanation.nextAction}</strong>
+        <div className="campaign-next-action"><b>Prochaine action</b>{explanation.nextAction}</div>
         <div className="campaign-evidence">{decision.evidence.slice(0, 4).map((item) => <span key={item}>{item}</span>)}</div>
       </div>
     </div>
@@ -239,7 +239,20 @@ export default function CampaignIntelligencePanel({ csrfToken }: { csrfToken: st
     {data && <>
       <section className="campaign-decision-summary">{statusOrder.map((status) => <article className={`campaign-summary-${status.toLowerCase()}`} key={status}><span>{status}</span><strong>{counts[status]}</strong><small>campaign{counts[status] === 1 ? "" : "s"}</small></article>)}</section>
       {data.dataFreshness.stale && <div className="admin-alert warning"><strong>Meta data freshness warning.</strong> {data.dataFreshness.note}</div>}
-      {data.unattributedOrders > 0 && <div className="admin-alert warning"><strong>{data.unattributedOrders} order(s) are not uniquely matched to a Meta campaign.</strong> Add a unique utm_campaign matching the Meta campaign name.</div>}
+      {data.unattributedOrders > 0 && (() => {
+        const breakdown = data.unattributedBreakdown;
+        // Une vente manuelle ou organique DOIT rester hors campagne : la compter gonflerait le
+        // ROAS d'une vente que la publicite n'a pas amenee. Seules les deux autres causes sont
+        // des pertes de mesure, et ce sont les seules a signaler comme telles.
+        const lost = breakdown.unknownCampaign + breakdown.ambiguousCampaign;
+        return <div className={`admin-alert ${lost > 0 ? "warning" : ""}`.trim()}>
+          <strong>{data.unattributedOrders} commande(s) hors campagne.</strong>
+          {breakdown.noCampaign > 0 && <> {breakdown.noCampaign} sans attribution (vente manuelle, trafic direct) — exclusion normale, ne rien faire.</>}
+          {breakdown.unknownCampaign > 0 && <> {breakdown.unknownCampaign} avec un nom de campagne inconnu de Meta — mesure perdue, le CPA de la campagne est surestime.</>}
+          {breakdown.ambiguousCampaign > 0 && <> {breakdown.ambiguousCampaign} avec un nom porte par plusieurs campagnes Meta — renommez-les pour les distinguer.</>}
+          {breakdown.unmatchedNames.length > 0 && <><br /><small>Noms concernes : {breakdown.unmatchedNames.join(", ")}</small></>}
+        </div>;
+      })()}
       {sorted.length === 0 ? <section className="admin-card campaign-empty"><h2>No campaign data for this period</h2><p>Run a Meta Insights sync, then return here. The manager never invents campaigns or spend.</p></section> : <div className="campaign-card-list">{sorted.map((analysis) => <CampaignCard key={analysis.entity.id} analysis={analysis} />)}</div>}
       <section className="admin-card campaign-method-note"><strong>Interpretation guardrails</strong><ul>{data.notes.map((note) => <li key={note}>{note}</li>)}</ul></section>
     </>}

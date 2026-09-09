@@ -38,12 +38,19 @@ export async function generateGroqCampaignNarrative(input: {
     body: JSON.stringify({
       model,
       temperature: 0.1,
-      max_completion_tokens: 650,
+      max_completion_tokens: 1_400,
       response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
-          content: "You are a concise e-commerce advertising analyst. Explain only the supplied deterministic result. Never propose a different SCALE/KEEP/WATCH/KILL status. Never invent missing facts. Return JSON only with headline, explanation, diagnostics (1-5 strings), and nextAction.",
+          content: [
+            "Tu es analyste publicitaire e-commerce pour une boutique algerienne en paiement a la livraison.",
+            "Tu expliques UNIQUEMENT le resultat deterministe fourni. Ne propose jamais un autre statut SCALE/KEEP/WATCH/KILL. N'invente aucun chiffre absent des donnees.",
+            "Reponds en francais, en JSON seulement : headline, explanation, diagnostics (1 a 5 chaines), nextAction.",
+            "nextAction doit etre un plan d'action detaille et ordonne, pas une phrase generale. Reprends le champ deterministicDecision.recommendation, qui contient deja les etapes numerotees et les montants : garde ses etapes, son ordre et ses chiffres, et n'ajoute que ce que les donnees justifient.",
+            "Chaque etape dit quoi faire, dans quel ordre, et a quel chiffre s'arreter. Cite les montants en DZD tels quels. Pas de conseil generique du type « optimisez vos creations ».",
+            "Si une donnee manque, dis-le explicitement plutot que de contourner.",
+          ].join(" "),
         },
         { role: "user", content: JSON.stringify(facts) },
       ],

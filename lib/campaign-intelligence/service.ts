@@ -293,9 +293,23 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
   }
   const ordersByEntity = new Map<string, Order[]>();
   let unattributedOrders = 0;
+  const unattributedBreakdown = { noCampaign: 0, unknownCampaign: 0, ambiguousCampaign: 0, unmatchedNames: [] as string[] };
   for (const order of periodOrders) {
-    const candidates = normalizedEntities.get(orderCampaign(order)) ?? [];
-    if (candidates.length !== 1) { unattributedOrders += 1; continue; }
+    const campaignName = orderCampaign(order);
+    const candidates = normalizedEntities.get(campaignName) ?? [];
+    if (candidates.length !== 1) {
+      unattributedOrders += 1;
+      // Trois causes, trois actions differentes — voir unattributedBreakdown dans types.ts.
+      if (!campaignName) unattributedBreakdown.noCampaign += 1;
+      else if (candidates.length === 0) {
+        unattributedBreakdown.unknownCampaign += 1;
+        if (!unattributedBreakdown.unmatchedNames.includes(campaignName)) unattributedBreakdown.unmatchedNames.push(campaignName);
+      } else {
+        unattributedBreakdown.ambiguousCampaign += 1;
+        if (!unattributedBreakdown.unmatchedNames.includes(campaignName)) unattributedBreakdown.unmatchedNames.push(campaignName);
+      }
+      continue;
+    }
     ordersByEntity.set(candidates[0], [...(ordersByEntity.get(candidates[0]) ?? []), order]);
   }
 
@@ -379,6 +393,7 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
     thresholds,
     analyses,
     unattributedOrders,
+    unattributedBreakdown,
     notes,
   };
 }

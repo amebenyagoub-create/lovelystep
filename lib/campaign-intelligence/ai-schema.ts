@@ -21,6 +21,8 @@ export function validateCampaignNarrative(value: unknown): ValidatedCampaignNarr
     headline: boundedText(raw.headline, "headline", 120),
     explanation: boundedText(raw.explanation, "explanation", 900),
     diagnostics: raw.diagnostics.map((item, index) => boundedText(item, `diagnostics[${index}]`, 240)),
-    nextAction: boundedText(raw.nextAction, "nextAction", 300),
+    // 300 caracteres imposaient une consigne d'une ligne, alors que le moteur produit deja un
+    // plan chiffre et ordonne. Le plafond suit desormais ce que ce plan peut contenir.
+    nextAction: boundedText(raw.nextAction, "nextAction", 1400),
   };
 }

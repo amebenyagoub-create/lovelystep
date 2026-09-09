@@ -230,5 +230,23 @@ export type CampaignIntelligenceResponse = {
   thresholds: CampaignThresholds;
   analyses: CampaignAnalysis[];
   unattributedOrders: number;
+  /**
+   * Pourquoi ces commandes ne sont rattachees a aucune campagne.
+   *
+   * Un nombre seul melangeait deux situations opposees : la vente manuelle ou organique,
+   * qu’il FAUT exclure sous peine de crediter la publicite d’une vente qu’elle n’a pas
+   * amenee, et la commande publicitaire dont le nom de campagne ne retombe pas, qui elle
+   * fausse le CPA a la hausse. Les deux demandent des actions opposees.
+   */
+  unattributedBreakdown: {
+    /** Aucune attribution : vente manuelle, trafic direct, ou consentement refuse. Exclusion correcte. */
+    noCampaign: number;
+    /** utm_campaign present mais aucune campagne Meta de ce nom. Commande publicitaire perdue. */
+    unknownCampaign: number;
+    /** utm_campaign correspondant a plusieurs campagnes Meta homonymes. Renommez-les. */
+    ambiguousCampaign: number;
+    /** Noms rencontres sans correspondance, pour pouvoir les corriger dans Ads Manager. */
+    unmatchedNames: string[];
+  };
   notes: string[];
 };
