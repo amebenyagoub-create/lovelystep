@@ -23,6 +23,7 @@
     "test:meta-ads": "node --env-file=.env.local scripts/test-meta-ads-catalog.mjs",
     "meta:bootstrap": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/meta-bootstrap.mjs",
     "cron:meta-sync": "node scripts/cron-meta-sync.mjs",
+    "cron:sheet-sync": "node scripts/cron-sheet-sync.mjs",
     "traffic:audit": "node --env-file=.env.local scripts/traffic-audit.mjs",
     "orders:attribution": "node --env-file=.env.local scripts/order-attribution.mjs",
     "orders:fix-attribution": "node --env-file=.env.local scripts/fix-order-attribution.mjs",
