@@ -350,6 +350,30 @@ export async function appendOrderToGoogleSheet(order: Order): Promise<"appended"
   }
   if (!writtenRow) throw new Error("La ligne Google Sheets n'a pas pu etre reservee apres plusieurs tentatives.");
 
+  /**
+   * Bureau ZR choisi par le client, transmis a l'agent.
+   *
+   * L'agent refuse de creer un colis pickup-point sans zr_hub_id ("hubId is required when
+   * deliveryType is pickup-point"). Il n'a aucun moyen de le deviner : c'est la boutique qui
+   * fait choisir le bureau au client. Sans cette colonne, toute commande au bureau echoue.
+   *
+   * Ecrit comme image_url : une colonne que l'agent possede, retrouvee par son en-tete, hors
+   * des dix-neuf colonnes A-S. Si l'en-tete zr_hub_id n'existe pas encore dans l'onglet, rien
+   * n'est ecrit et l'expedition se comporte comme avant — ajoutez la colonne pour l'activer.
+   */
+  try {
+    const hubColumn = order.deliveryType === "office" && order.deliveryHubId ? await headerIndex(config, "zr_hub_id") : -1;
+    if (hubColumn >= 0 && writtenRow) {
+      const cell = a1(config.tabName, `${columnLetter(hubColumn)}${writtenRow}`);
+      await sheetsRequest(config.spreadsheetId, cell, {
+        method: "PUT",
+        body: JSON.stringify({ range: cell, majorDimension: "ROWS", values: [[order.deliveryHubId]] }),
+      }, "", "valueInputOption=RAW");
+    }
+  } catch (error) {
+    console.warn("Google Sheets zr_hub_id skipped", error instanceof Error ? error.message : error);
+  }
+
   // The photo lives in a column the agent owns, past this file's nineteen, so
   // it is written as a second targeted update rather than widening the append.
   // Never fatal: an order without its photo still gets confirmed, it just
