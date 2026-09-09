@@ -56,11 +56,24 @@ export function decideCampaign(kpis: CampaignKpis, trend: CampaignTrend, thresho
     };
   }
 
-  if (enoughOutcomes && below(kpis.cod.deliveryRatePercent, thresholds.minimumDeliveryRatePercent)
-    && atLeast(kpis.cod.refusalRatePercent, thresholds.maximumRefusalRatePercent)) {
+  /**
+   * Regle qualite COD.
+   *
+   * Elle exigeait AUSSI un taux de refus au-dessus du seuil. Or ZR ne renvoie jamais de refus
+   * distinct : un colis refuse a la porte arrive avec le meme code qu'un retour d'adresse, et
+   * le statut `refused` de la boutique n'est jamais atteint. `refusalRatePercent` valait donc
+   * toujours 0, la condition ne pouvait jamais etre vraie, et cette regle etait morte : une
+   * campagne dont la moitie des colis revenaient passait sans un mot.
+   *
+   * Le taux d'echec de livraison, lui, est observable — et il coute la meme chose quelle que
+   * soit la raison. C'est lui qui declenche desormais. Le detail des refus reste en evidence
+   * quand il existe.
+   */
+  if (enoughOutcomes && below(kpis.cod.deliveryRatePercent, thresholds.minimumDeliveryRatePercent)) {
     return {
       status: kpis.economics.selectedNetProfitMinor !== null && kpis.economics.selectedNetProfitMinor < 0 ? "KILL" : "WATCH",
-      confidence: resultConfidence, reasonCode: "COD_QUALITY_FAILURE", evidence,
+      confidence: resultConfidence, reasonCode: "COD_QUALITY_FAILURE",
+      evidence: [...evidence, `Echec de livraison : ${kpis.cod.failedDeliveryRatePercent ?? "—"}% des colis expedies ne sont pas arrives.`],
       recommendation: "Fix lead quality and order confirmation before increasing acquisition spend.",
     };
   }

@@ -105,6 +105,9 @@ export type Order = {
   deliveryHubId: string | null;
   deliveryHubName: string | null;
   /** Fil WhatsApp de confirmation, recopie du Sheet ou l’agent l’ecrit. Lecture seule. */
+  /** Etat brut ecrit par l’agent depuis ZR Express (ZR_ERROR, MISSED_ATTEMPT, NO_REPLY…).
+   *  Le statut a neuf valeurs ci-dessus l’appauvrit : les KPI lisent celui-ci. */
+  sheetState: string | null;
   whatsappLog: string | null;
   whatsappLogAt: string | null;
   deliveryExternalId: string | null;

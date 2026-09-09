@@ -8,6 +8,8 @@ export type CampaignKpiInput = {
   allocatedVariableCostsMinor: number;
   historicalConfirmationRatePercent: number;
   historicalDeliveryRatePercent: number;
+  /** Vrai quand les deux taux ci-dessus sont la valeur de repli et non une mesure. */
+  ratesAreAssumed?: boolean;
   /** Global delivered-order economics used only when this campaign has no resolved deliveries yet. */
   baselineContributionPerDeliveredOrderMinor?: number | null;
   baselineAverageOrderRevenueMinor?: number | null;
@@ -15,11 +17,28 @@ export type CampaignKpiInput = {
 };
 
 const safeRate = (value: number, fallback: number) => Number.isFinite(value) && value >= 0 && value <= 100 ? value : fallback;
+
+/**
+ * Commandes arretees qui ne se resoudront pas toutes seules.
+ *
+ * Le statut a neuf valeurs les deguise en pipeline vivant : l'agent ecrit ZR_ERROR quand la
+ * creation du colis a echoue, NO_REPLY quand les relances sont epuisees, STALLED quand ZR n'a
+ * plus rien dit depuis 72 h, HUMAN quand la conversation attend un humain. La table de
+ * correspondance les range respectivement en « confirmee », « a confirmer » et « expediee »,
+ * si bien que le moteur leur accordait la probabilite de livraison d'une commande saine.
+ *
+ * Consequence mesuree : du chiffre d'affaires prevu qui n'arrivera jamais, un CPA cible trop
+ * genereux, et un mode qui reste « estime » indefiniment puisque ces lignes ne se resolvent
+ * jamais. Elles sortent donc des previsions ET des denominateurs de taux — elles ne sont ni
+ * un succes ni un echec de livraison, elles attendent une intervention.
+ */
+const BLOCKED_SHEET_STATES = new Set(["ZR_ERROR", "NO_REPLY", "STALLED", "HUMAN", "NEEDS_REVIEW"]);
+const isBlocked = (order: Order) => BLOCKED_SHEET_STATES.has(String(order.sheetState ?? "").trim().toUpperCase());
 const was = (order: Order, status: Order["status"]) => order.status === status || order.statusHistory.some((entry) => entry.status === status);
 const resolvedConfirmation = (order: Order) => was(order, "confirmed") || order.status === "refused" || order.status === "cancelled";
 const wasShipped = (order: Order) => was(order, "shipped");
 const deliveryOutcome = (order: Order) => order.status === "delivered" || order.status === "returned" || (order.status === "refused" && wasShipped(order));
-const pendingOrder = (order: Order) => !["delivered", "returned", "refused", "cancelled"].includes(order.status);
+const pendingOrder = (order: Order) => !["delivered", "returned", "refused", "cancelled"].includes(order.status) && !isBlocked(order);
 
 function orderCogs(order: Order): number | null {
   let value = 0;
@@ -66,9 +85,12 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   const confirmationProbability = historicalConfirmationRatePercent / 100;
   const deliveryProbability = historicalDeliveryRatePercent / 100;
 
+  const blocked = orders.filter(isBlocked).length;
   const expectedDeliveredOrders = roundExpected(sum(orders.map((order) => {
     if (order.status === "delivered") return 1;
     if (["returned", "refused", "cancelled"].includes(order.status)) return 0;
+    // Bloquee : rien ne bouge tant qu'un humain n'intervient pas, on ne prevoit pas de livraison.
+    if (isBlocked(order)) return 0;
     if (was(order, "confirmed")) return deliveryProbability;
     return confirmationProbability * deliveryProbability;
   })));
@@ -120,11 +142,13 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
       expectedContribution -= (order.deliveryCost?.carrierCostCents ?? 0) + (order.deliveryCost?.returnCostCents ?? 0);
       continue;
     }
+    // Une commande bloquee n'apporte ni revenu ni cout tant qu'elle n'est pas debloquee.
+    if (isBlocked(order)) continue;
     const outcomeProbability = was(order, "confirmed") ? deliveryProbability : confirmationProbability * deliveryProbability;
     expectedContribution += outcomeProbability * (order.subtotalCents + order.shippingCents - (cogs ?? 0) - carrierCostOf(order));
   }
   const expectedNetProfitMinor = costDataComplete && spendMinor !== null ? Math.round(expectedContribution - spendMinor) : null;
-  const outcomesIncomplete = pending > 0 || deliveryOutcomes < confirmedOrders.length;
+  const outcomesIncomplete = pending > 0 || deliveryOutcomes < confirmedOrders.filter((order) => !isBlocked(order)).length;
   const mode: CampaignKpis["mode"] = outcomesIncomplete ? "estimated" : "actual";
   const selectedNetProfitMinor = mode === "estimated" ? expectedNetProfitMinor : actualNetProfitMinor;
 
@@ -149,7 +173,9 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   if (ordersMissingCogs) notes.push(`${ordersMissingCogs} campaign order(s) are missing product-cost snapshots.`);
   if (ordersMissingDeliveryCost) notes.push(`${ordersMissingDeliveryCost} fulfilled order(s) are missing actual delivery costs.`);
   if (outcomesIncomplete) notes.push("Delivery outcomes are incomplete; expected profit uses historical confirmation and delivery probabilities.");
+  if (input.ratesAreAssumed) notes.push(`Aucune commande resolue : les taux de confirmation (${Math.round(historicalConfirmationRatePercent)}%) et de livraison (${Math.round(historicalDeliveryRatePercent)}%) sont une HYPOTHESE, pas une mesure. Le CPA cible et le verdict en dependent entierement.`);
   if (!knownCarrierCosts.length && pending > 0) notes.push("No campaign carrier-cost history is available for pending-order estimates.");
+  if (blocked) notes.push(`${blocked} commande(s) bloquee(s) (ZR_ERROR, NO_REPLY, STALLED, HUMAN) : exclues des previsions, elles attendent une intervention.`);
   if (orders.length) notes.push("Store orders are matched to Meta campaigns by normalized utm_campaign name.");
 
   return {
@@ -197,6 +223,11 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
       confirmationRatePercent: percent(confirmedOrders.length, confirmationOutcomes),
       deliveryRatePercent: percent(deliveredOrders.length, deliveryOutcomes),
       refusalRatePercent: percent(refused, confirmationOutcomes),
+      // Taux d’echec de livraison reel : ZR ne distingue pas le refus a la porte du retour
+      // pour adresse invalide, les deux arrivent en RETURNED. `refusalRatePercent` reste
+      // donc a zero et ne peut rien declencher ; celui-ci mesure ce qui est reellement
+      // observable, et coute la meme chose : la commande confirmee qui n’a pas ete livree.
+      failedDeliveryRatePercent: percent(refused + returned, deliveryOutcomes),
       returnRatePercent: percent(returned, deliveryOutcomes),
       historicalConfirmationRatePercent,
       historicalDeliveryRatePercent,

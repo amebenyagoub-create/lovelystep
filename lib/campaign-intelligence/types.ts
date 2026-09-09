@@ -80,6 +80,8 @@ export type CampaignKpis = {
     confirmationRatePercent: number | null;
     deliveryRatePercent: number | null;
     refusalRatePercent: number | null;
+    /** Part des commandes expediees qui ne sont pas arrivees (refus + retour confondus, ZR ne les separe pas). */
+    failedDeliveryRatePercent: number | null;
     returnRatePercent: number | null;
     historicalConfirmationRatePercent: number;
     historicalDeliveryRatePercent: number;

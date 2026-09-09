@@ -24,7 +24,15 @@ function ratePercent(numerator: number, denominator: number, fallback: number): 
   return denominator > 0 ? Math.round((numerator / denominator) * 1_000) / 10 : fallback;
 }
 
-function historicalRates(orders: Order[]): { confirmation: number; delivery: number } {
+/**
+ * Taux de confirmation et de livraison reellement observes.
+ *
+ * `measured` dit si ces taux viennent de commandes resolues ou de la valeur de repli a 70 %.
+ * La distinction n'est pas cosmetique : ces deux nombres pilotent le CPA cible, le profit
+ * prevu et le verdict KILL/SCALE. Presentes comme une mesure alors qu'ils sont une hypothese,
+ * ils font prendre des decisions de budget sur une constante inventee.
+ */
+function historicalRates(orders: Order[]): { confirmation: number; delivery: number; measured: boolean } {
   const confirmationOutcomes = orders.filter((order) => order.statusHistory.some((entry) => entry.status === "confirmed") || ["refused", "cancelled"].includes(order.status));
   const confirmed = confirmationOutcomes.filter((order) => order.statusHistory.some((entry) => entry.status === "confirmed") || ["confirmed", "preparing", "shipped", "delivered", "returned"].includes(order.status)).length;
   const deliveryOutcomes = orders.filter((order) => ["delivered", "returned"].includes(order.status) || (order.status === "refused" && order.statusHistory.some((entry) => entry.status === "shipped")));
@@ -32,6 +40,7 @@ function historicalRates(orders: Order[]): { confirmation: number; delivery: num
   return {
     confirmation: ratePercent(confirmed, confirmationOutcomes.length, 70),
     delivery: ratePercent(delivered, deliveryOutcomes.length, 70),
+    measured: confirmationOutcomes.length > 0 && deliveryOutcomes.length > 0,
   };
 }
 
@@ -67,7 +76,7 @@ function toDaily(row: CampaignInsightDailyRecord, rates: Map<string, number>): C
   };
 }
 
-function splitWindow(daily: CampaignDailyMetric[], orders: Order[], allocatedVariableCostsMinor: number, rates: { confirmation: number; delivery: number }, baseline: { contribution: number | null; revenue: number | null }, thresholds: ReturnType<typeof campaignThresholds>): { previous: CampaignKpis; current: CampaignKpis; previousWindow: CampaignTrend["previousWindow"]; currentWindow: CampaignTrend["currentWindow"] } | null {
+function splitWindow(daily: CampaignDailyMetric[], orders: Order[], allocatedVariableCostsMinor: number, rates: { confirmation: number; delivery: number; measured: boolean }, baseline: { contribution: number | null; revenue: number | null }, thresholds: ReturnType<typeof campaignThresholds>): { previous: CampaignKpis; current: CampaignKpis; previousWindow: CampaignTrend["previousWindow"]; currentWindow: CampaignTrend["currentWindow"] } | null {
   const days = [...new Set(daily.map((row) => row.date))].sort();
   if (days.length < 4) return null;
   const middle = Math.floor(days.length / 2);
@@ -80,6 +89,7 @@ function splitWindow(daily: CampaignDailyMetric[], orders: Order[], allocatedVar
     allocatedVariableCostsMinor: Math.round(allocatedVariableCostsMinor * periodShare(selected)),
     historicalConfirmationRatePercent: rates.confirmation,
     historicalDeliveryRatePercent: rates.delivery,
+    ratesAreAssumed: !rates.measured,
     baselineContributionPerDeliveredOrderMinor: baseline.contribution,
     baselineAverageOrderRevenueMinor: baseline.revenue,
     thresholds,
@@ -245,6 +255,34 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
   const currencies = [...new Set([...insightRows, ...breakdownRows].map((row) => row.currency.toUpperCase()).filter((currency) => currency && currency !== "DZD"))];
   const fxRates = await listFxRates(currencies);
   const rates = new Map(fxRates.map((rate) => [`${rate.rateDate}|${rate.currency.toUpperCase()}`, rate.dzdPerUnit]));
+  /**
+   * Un jour sans taux de change ne doit plus effacer le tableau de bord.
+   *
+   * La depense arrive en USD ; sans taux pour CE jour, convertMinor renvoyait null, et un seul
+   * jour manquant suffisait a rendre `spendMinor` nul — donc profit, CPA et verdict
+   * indisponibles pour toute la periode. Le taux etait alimente a la main par un script, et
+   * dependre d'une commande de maintenance pour que les chiffres s'affichent est une faute de
+   * conception : le jour ou elle n'est pas lancee, le tableau ment par omission.
+   *
+   * On reporte donc le dernier taux connu sur les jours manquants. Ce n'est pas une constante
+   * inventee : c'est la derniere valeur que l'utilisateur a lui-meme saisie, prolongee, et
+   * signalee comme telle. Un taux date reel gagne toujours sur le report.
+   */
+  const carriedFxDays: string[] = [];
+  for (const currency of currencies) {
+    const known = fxRates
+      .filter((rate) => rate.currency.toUpperCase() === currency)
+      .sort((first, second) => first.rateDate.localeCompare(second.rateDate));
+    if (!known.length) continue;
+    let carried = known[0].dzdPerUnit;
+    for (let cursor = Date.parse(`${since}T00:00:00Z`); cursor <= Date.parse(`${until}T00:00:00Z`); cursor += 86_400_000) {
+      const day = new Date(cursor).toISOString().slice(0, 10);
+      const exact = rates.get(`${day}|${currency}`);
+      if (exact != null) { carried = exact; continue; }
+      rates.set(`${day}|${currency}`, carried);
+      carriedFxDays.push(day);
+    }
+  }
 
   const groups = new Map<string, CampaignInsightDailyRecord[]>();
   for (const row of insightRows) groups.set(row.entityId, [...(groups.get(row.entityId) ?? []), row]);
@@ -281,6 +319,7 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
       allocatedVariableCostsMinor,
       historicalConfirmationRatePercent: history.confirmation,
       historicalDeliveryRatePercent: history.delivery,
+      ratesAreAssumed: !history.measured,
       baselineContributionPerDeliveredOrderMinor: globalEconomics.contribution,
       baselineAverageOrderRevenueMinor: globalEconomics.revenue,
       thresholds,
@@ -323,6 +362,10 @@ export async function getCampaignIntelligence(since: string, until: string): Pro
     "Campaign-to-order attribution currently uses normalized utm_campaign name matching; ambiguous names remain unattributed.",
   ];
   if (variableExpensesMinor > 0 && attributedOrderValue === 0) notes.push("Variable expenses could not be allocated because no store order matched a campaign.");
+  if (carriedFxDays.length) {
+    const unique = [...new Set(carriedFxDays)].sort();
+    notes.push(`${unique.length} jour(s) sans taux de change saisi (${unique[0]}${unique.length > 1 ? ` → ${unique.at(-1)}` : ""}) : le dernier taux connu a ete reporte. Mettez les taux a jour pour une depense exacte.`);
+  }
 
   return {
     period: { since, until, timezone: REPORTING_TIMEZONE, currency: REPORTING_CURRENCY },
