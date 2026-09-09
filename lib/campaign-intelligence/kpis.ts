@@ -152,7 +152,30 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   const mode: CampaignKpis["mode"] = outcomesIncomplete ? "estimated" : "actual";
   const selectedNetProfitMinor = mode === "estimated" ? expectedNetProfitMinor : actualNetProfitMinor;
 
-  const contributionPerDelivered = contributionBeforeAdsMinor === null ? null : perUnitMinor(contributionBeforeAdsMinor, deliveredOrders.length);
+  /**
+   * Marge d'UNE commande livree — la base du CPA maximal soutenable.
+   *
+   * Elle valait auparavant contributionBeforeAds / nombre de livraisons. Or ce numerateur
+   * melange deux perimetres : le chiffre d'affaires et le cout d'achat ne comptent que les
+   * commandes LIVREES, tandis que les frais de transport et de retour sont additionnes sur
+   * TOUTES les commandes de la periode. On soustrayait donc les frais de quinze colis d'un
+   * chiffre d'affaires de deux, puis on divisait par deux. Le resultat devenait nul ou negatif
+   * des la premiere livraison, Math.max(0, ...) le ramenait a zero, et le CPA cible affiche
+   * tombait a 0 DZD — un objectif qu'aucune campagne ne peut atteindre.
+   *
+   * Le double comptage est reel : les echecs sont deja pris en compte une fois, par le taux de
+   * livraison qui multiplie ce montant plus bas. Les compter aussi ici les facturait deux fois.
+   *
+   * On mesure donc ce qu'une livraison reussie rapporte vraiment : son prix, moins son cout
+   * d'achat, moins le transport qu'elle a paye. Le P&L reel de la periode, lui, garde bien tous
+   * les frais engages — c'est un autre nombre, et il reste juste.
+   */
+  const deliveredCogsComplete = cogsValues.every((value) => value !== null);
+  const contributionPerDelivered = !deliveredOrders.length || !deliveredCogsComplete ? null : Math.round(sum(deliveredOrders.map((order) =>
+    order.subtotalCents + order.shippingCents
+    - sum(order.refunds.map((refund) => refund.amountCents))
+    - (orderCogs(order) ?? 0)
+    - carrierCostOf(order))) / deliveredOrders.length);
   const fallbackContributionPerOrder = (() => {
     const completeOrders = orders.filter((order) => orderCogs(order) !== null);
     if (!completeOrders.length) return null;
@@ -173,6 +196,9 @@ export function computeCampaignKpis(input: CampaignKpiInput): CampaignKpis {
   if (ordersMissingCogs) notes.push(`${ordersMissingCogs} campaign order(s) are missing product-cost snapshots.`);
   if (ordersMissingDeliveryCost) notes.push(`${ordersMissingDeliveryCost} fulfilled order(s) are missing actual delivery costs.`);
   if (outcomesIncomplete) notes.push("Delivery outcomes are incomplete; expected profit uses historical confirmation and delivery probabilities.");
+  if (targetDeliveredCpaMinor === 0 && breakEvenDeliveredCpaMinor !== null) {
+    notes.push(`CPA cible a 0 : le profit exige par commande livree (${Math.round(thresholds.targetNetProfitPerDeliveredOrderMinor / 100)} DZD) depasse la marge disponible (${Math.round(breakEvenDeliveredCpaMinor / 100)} DZD). Aucune campagne ne peut atteindre cet objectif — baissez l'exigence de profit ou verifiez les couts produit.`);
+  }
   if (input.ratesAreAssumed) notes.push(`Aucune commande resolue : les taux de confirmation (${Math.round(historicalConfirmationRatePercent)}%) et de livraison (${Math.round(historicalDeliveryRatePercent)}%) sont une HYPOTHESE, pas une mesure. Le CPA cible et le verdict en dependent entierement.`);
   if (!knownCarrierCosts.length && pending > 0) notes.push("No campaign carrier-cost history is available for pending-order estimates.");
   if (blocked) notes.push(`${blocked} commande(s) bloquee(s) (ZR_ERROR, NO_REPLY, STALLED, HUMAN) : exclues des previsions, elles attendent une intervention.`);
