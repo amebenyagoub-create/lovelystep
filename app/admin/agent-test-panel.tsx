@@ -25,7 +25,7 @@ export default function AgentTestPanel({ products, rates, csrfToken, onError }: 
   const [productId, setProductId] = useState(String(published[0]?.id || ""));
   const [wilayaCode, setWilayaCode] = useState(activeRates[0]?.wilayaCode || "");
   const [deliveryType, setDeliveryType] = useState<"home" | "office">("home");
-  const [model, setModel] = useState("deepseek-v4-flash");
+  const [model, setModel] = useState("gpt-5.6-sol");
   const [message, setMessage] = useState("ch7al w wach kayna taille 3 ans?");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
@@ -76,8 +76,8 @@ export default function AgentTestPanel({ products, rates, csrfToken, onError }: 
         </label>
         <label>Modèle
           <select value={model} onChange={(event) => setModel(event.target.value)}>
-            <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
             <option value="gpt-5.6-sol">GPT-5.6 Sol</option>
+            <option value="deepseek-v4-flash">DeepSeek V4 Flash</option>
           </select>
         </label>
         <label className="agent-test-message">Message du client
