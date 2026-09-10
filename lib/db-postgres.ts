@@ -16,10 +16,10 @@ export const pool = globalPg.lovelyStepPool ?? new Pool({
   connectionString,
   ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
   max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
-  idleTimeoutMillis: 30_000,
+  idleTimeoutMillis: 300_000,
   connectionTimeoutMillis: 12_000,
 });
-if (process.env.NODE_ENV !== "production") globalPg.lovelyStepPool = pool;
+globalPg.lovelyStepPool = pool;
 
 async function runMigrationOnce(name: string, fn: (client: PoolClient) => Promise<void>): Promise<void> {
   const applied = await pool.query("SELECT 1 FROM schema_migrations WHERE name=$1", [name]);
@@ -49,10 +49,10 @@ async function initialize(): Promise<void> {
   }
   const schema = fs.readFileSync(path.join(process.cwd(), "lib", "postgres-schema.sql"), "utf8");
   await pool.query(schema);
-  for (const wilaya of algeriaWilayas) {
-    await pool.query(`INSERT INTO delivery_rates (wilaya_code,wilaya_name_fr,wilaya_name_ar)
-      VALUES ($1,$2,$3) ON CONFLICT (wilaya_code) DO NOTHING`, [wilaya.code, wilaya.nameFr, wilaya.nameAr]);
-  }
+  await pool.query(`INSERT INTO delivery_rates (wilaya_code,wilaya_name_fr,wilaya_name_ar)
+    SELECT code, "nameFr", "nameAr"
+    FROM jsonb_to_recordset($1::jsonb) AS wilaya(code text, "nameFr" text, "nameAr" text)
+    ON CONFLICT (wilaya_code) DO NOTHING`, [JSON.stringify(algeriaWilayas)]);
   await runMigrationOnce("2026-08-order-status-history-backfill", async (client) => {
     await client.query("INSERT INTO order_status_history (order_id,status,created_at) SELECT id,'new',created_at FROM orders");
     // audit_logs.entity_id is untyped text with no foreign key, so rows outlive their order: the EXISTS guard keeps the backfill from failing on deleted orders.
