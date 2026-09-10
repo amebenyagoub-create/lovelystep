@@ -14,6 +14,7 @@ const context = buildAgentStoreContext([{
   category: "Ensembles",
   color: "Bleu",
   colors: ["Bleu"],
+  images: ["/api/media/products/ensemble-happy.webp"],
   variants: [{ color: "Bleu", size: "110", age: "", stock: 2 }],
   sizes: [],
 }], [{
@@ -32,6 +33,7 @@ assert.equal(context.products[0].priceDzd, 3_800);
 assert.equal(context.products[0].variants[0].stock, 2);
 assert.equal(context.products[0].variants[0].age, "3-4 ans");
 assert.equal(context.products[0].productUrl, "https://lovelystep.com/produits/ensemble-happy");
+assert.equal(context.products[0].imageUrl, "https://lovelystep.com/api/wa-image/ensemble-happy.webp");
 assert.equal(context.delivery[0].homeDzd, 700);
 assert.equal("costCents" in context.products[0], false, "le cout prive ne doit jamais quitter la boutique");
 assert.deepEqual(context.promotions, [], "aucune promotion ne doit etre inventee");

@@ -9,6 +9,7 @@ export type AgentStoreContext = {
     name: string;
     slug: string;
     productUrl: string;
+    imageUrl: string;
     description: string;
     category: string;
     priceDzd: number;
@@ -27,6 +28,12 @@ export type AgentStoreContext = {
 };
 
 const dzd = (cents: number) => Math.max(0, Number(cents) || 0) / 100;
+
+function whatsappImageUrl(product: Product, base: string): string {
+  const image = product.images.find((value) => value?.trim())?.trim() || "";
+  const match = /^\/api\/media\/products\/([a-zA-Z0-9._-]+)$/.exec(image);
+  return base && match ? `${base}/api/wa-image/${match[1]}` : "";
+}
 
 export function buildAgentStoreContext(products: Product[], rates: DeliveryRate[], publicOrigin: string): AgentStoreContext {
   const base = publicOrigin.replace(/\/+$/, "");
@@ -52,6 +59,7 @@ export function buildAgentStoreContext(products: Product[], rates: DeliveryRate[
         name: product.name,
         slug: product.slug,
         productUrl: base ? `${base}/produits/${product.slug}` : `/produits/${product.slug}`,
+        imageUrl: whatsappImageUrl(product, base),
         description: product.shortDescription || product.description,
         category: product.category,
         priceDzd: dzd(product.priceCents),
