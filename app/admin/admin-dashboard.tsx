@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
 import type { DeliveryRate, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
 import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
+import { filterAdminOrders, type AdminOrderStatusFilter } from "@/lib/admin-order-filter";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
@@ -27,6 +28,8 @@ export default function AdminDashboard() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | "new" | null>(null);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderStatus, setOrderStatus] = useState<AdminOrderStatusFilter>("all");
 
   const load = useCallback(async () => {
     try {
@@ -106,6 +109,8 @@ export default function AdminDashboard() {
     if (value) setNotice("Produit supprimé.");
   }
 
+  const filteredOrders = useMemo(() => data ? filterAdminOrders(data.orders, orderStatus, orderSearch) : [], [data, orderSearch, orderStatus]);
+
   if (!data) return <main className="admin-loading"><Image src="/brand/lovelystep-logo.png" alt="" width={130} height={130} /><p>Chargement du dashboard…</p>{error && <p className="form-error">{error}</p>}</main>;
 
   const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["agent", "Agent WhatsApp", "◉"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
@@ -128,7 +133,7 @@ export default function AdminDashboard() {
       {tab === "campaigns" && <CampaignIntelligencePanel csrfToken={data.csrfToken} />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
       {tab === "agent" && <AgentTestPanel products={data.products} rates={data.deliveryRates} csrfToken={data.csrfToken} onError={setError} />}
-      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
+      {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><div className="order-filters"><label><span>Rechercher</span><input type="search" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="N°, client, téléphone, produit, wilaya…" /></label><label><span>Statut</span><select value={orderStatus} onChange={(event) => setOrderStatus(event.target.value as AdminOrderStatusFilter)}><option value="all">Tous les statuts</option>{Object.entries(orderLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><output aria-live="polite">{filteredOrders.length} sur {data.orders.length}</output>{(orderSearch || orderStatus !== "all") && <button type="button" onClick={() => { setOrderSearch(""); setOrderStatus("all"); }}>Effacer</button>}</div><OrdersTable orders={filteredOrders} emptyMessage="Aucune commande ne correspond à votre recherche." onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card">
         <div className="card-title">
           <div>
@@ -388,8 +393,8 @@ export function ordersNeedingAttention(orders: Order[]): number {
   return orders.filter((order) => agentState(order.sheetState)?.tone === "alert").length;
 }
 
-function OrdersTable({ orders, onEdit, onStatus, onDelete, onDispatch, onRetrySheet, zrExpressReady, busy }: { orders: Order[]; onEdit: (order: Order) => void; onStatus: (id: number, status: OrderStatus) => void; onDelete: (order: Order) => void; onDispatch: (order: Order) => void; onRetrySheet: (order: Order) => void; zrExpressReady: boolean; busy: boolean }) {
-  if (!orders.length) return <div className="empty-admin">Aucune commande pour le moment.</div>;
+function OrdersTable({ orders, emptyMessage = "Aucune commande pour le moment.", onEdit, onStatus, onDelete, onDispatch, onRetrySheet, zrExpressReady, busy }: { orders: Order[]; emptyMessage?: string; onEdit: (order: Order) => void; onStatus: (id: number, status: OrderStatus) => void; onDelete: (order: Order) => void; onDispatch: (order: Order) => void; onRetrySheet: (order: Order) => void; zrExpressReady: boolean; busy: boolean }) {
+  if (!orders.length) return <div className="empty-admin">{emptyMessage}</div>;
   return <div className="orders-table"><div className="order-row order-head"><span>N°</span><span>Client</span><span>Articles</span><span>Total</span><span>Date</span><span>Statut et livraison</span></div>{orders.map((order) => {
     const canDispatch = order.status === "confirmed" || order.status === "preparing";
     const agent = agentState(order.sheetState);

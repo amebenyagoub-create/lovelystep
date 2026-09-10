@@ -191,6 +191,11 @@
 
 /* Google Sheet outbox: the queue between the store and the confirmation agent. */
 .orders-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.order-filters{display:grid;grid-template-columns:minmax(260px,1fr) minmax(180px,240px) auto auto;gap:10px;align-items:end;margin:0 0 16px;padding:14px;border:1px solid var(--line);border-radius:14px;background:#f8fafc}
+.order-filters label{display:grid;gap:6px;font-size:10px;font-weight:900;color:var(--muted)}
+.order-filters input,.order-filters select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--navy);padding:9px 11px;font:inherit}
+.order-filters output{align-self:center;white-space:nowrap;font-size:11px;font-weight:900;color:var(--muted)}
+.order-filters button{min-height:42px;border:0;background:transparent;color:var(--coral);font-size:11px;font-weight:900}
 .admin-secondary{border:1px solid var(--line);background:#fff;color:var(--navy);border-radius:10px;padding:11px 17px;font-size:12px;font-weight:800}
 .admin-secondary:hover{background:#f6f7f9}
 .admin-secondary:disabled{opacity:.5;cursor:not-allowed}
@@ -200,7 +205,7 @@
 .sheet-sync-banner{background:#fff1cf;color:#845d00;border-radius:12px;padding:11px 15px;margin-bottom:16px;font-size:12px;font-weight:700;line-height:1.5}
 .sheet-sync-banner.error{background:#ffe5e2;color:#a13931}
 .sheet-sync-cell{display:grid;gap:6px;border-top:1px dashed #e4e8ed;padding-top:7px}
-@media(max-width:900px){.orders-actions{width:100%}.orders-actions>*{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center}}
+@media(max-width:900px){.orders-actions{width:100%}.orders-actions>*{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center}.order-filters{grid-template-columns:1fr 1fr}.order-filters label:first-child{grid-column:1/-1}.order-filters output{justify-self:start}.order-filters button{justify-self:end}}
 .mobile-buy-promise{margin:0 0 6px;font-size:11px;line-height:1.4;color:var(--muted);text-align:center;width:100%}
 
 /* Saisie des tailles : le nombre du fournisseur, l'âge et la stature en lecture seule. */
