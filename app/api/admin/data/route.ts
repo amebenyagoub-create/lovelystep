@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
 import { dashboardStats, getDeliveryIntegration, getStoreSettings, lastScheduledSheetSyncAt, listDeliveryRates, listExpenses, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
-import { syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
-import { log, errorMessage } from "@/lib/log";
 import { metaStatus } from "@/lib/meta/config";
 import { getZrExpressStatus } from "@/lib/zrexpress";
 
@@ -11,23 +9,18 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await requireAdminApi();
   if (!session) return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
-  let orders: Awaited<ReturnType<typeof listOrders>>;
-  // The scheduled job at /api/cron/sheet-sync is what keeps this current; the
-  // call here only makes the page you are looking at as fresh as possible.
-  let sheetSync: { unknownStates: string[]; error: string | null } = { unknownStates: [], error: null };
-  try {
-    const sync = await syncOrderStatesFromGoogleSheet();
-    orders = sync.orders;
-    sheetSync = { unknownStates: sync.unknownStates, error: null };
-    if (sync.unknownStates.length) log.actionRequired("sheet_states_unknown", { states: sync.unknownStates });
-  } catch (error) {
-    const message = errorMessage(error, "Synchronisation Google Sheets impossible.");
-    log.actionRequired("sheet_state_pull_failed", { message });
-    sheetSync = { unknownStates: [], error: message };
-    orders = await listOrders();
-  }
-  const [stats, products, storeSettings, deliveryRates, deliveryIntegration, expenses] = await Promise.all([
-    dashboardStats(), listProducts(true), getStoreSettings(), listDeliveryRates(), getDeliveryIntegration(), listExpenses(),
+  // Google Sheets is synchronized by /api/cron/sheet-sync. Keeping that remote
+  // request out of this route makes the dashboard independent from Google latency.
+  const [stats, products, orders, storeSettings, deliveryRates, deliveryIntegration, expenses, depth, lastScheduledSync] = await Promise.all([
+    dashboardStats(),
+    listProducts(true),
+    listOrders(),
+    getStoreSettings(),
+    listDeliveryRates(),
+    getDeliveryIntegration(),
+    listExpenses(),
+    sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })),
+    lastScheduledSheetSyncAt().catch(() => null),
   ]);
   return NextResponse.json({
     admin: { email: session.email },
@@ -39,11 +32,10 @@ export async function GET() {
     },
     zrExpress: getZrExpressStatus(),
     sheetSync: {
-      ...sheetSync,
-      depth: await sheetOutboxDepth().catch(() => ({ pending: 0, failing: 0, oldestPendingAt: null })),
-      // Ouvrir cette page synchronise aussi, donc cette date ne vient QUE du travail planifie :
-      // c'est la seule facon de voir qu'il ne tourne pas quand personne ne regarde.
-      lastScheduledSync: await lastScheduledSheetSyncAt().catch(() => null),
+      unknownStates: [],
+      error: null,
+      depth,
+      lastScheduledSync,
     },
     products, orders, storeSettings, deliveryRates, deliveryIntegration, expenses,
   });

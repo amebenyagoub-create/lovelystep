@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit, resetOrderSheetSync, sheetOutboxDepth } from "@/lib/db-postgres";
-import { drainOrderSheetOutbox } from "@/lib/google-sheets";
+import { drainOrderSheetOutbox, syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,7 +28,13 @@ export async function POST(request: Request) {
 
   try {
     const outbox = await drainOrderSheetOutbox(100);
-    return NextResponse.json({ ok: outbox.failed === 0, outbox, depth: await sheetOutboxDepth() });
+    const states = Number.isInteger(id) && id > 0 ? null : await syncOrderStatesFromGoogleSheet();
+    return NextResponse.json({
+      ok: outbox.failed === 0,
+      outbox,
+      states: states ? { updated: states.updated, parcelsAdopted: states.parcelsAdopted, unknownStates: states.unknownStates } : null,
+      depth: await sheetOutboxDepth(),
+    });
   } catch (error) {
     const message = (error instanceof Error ? error.message : "Export impossible.").slice(0, 300);
     return NextResponse.json({ error: message }, { status: 502 });

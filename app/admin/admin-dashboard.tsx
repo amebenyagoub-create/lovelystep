@@ -43,7 +43,7 @@ export default function AdminDashboard() {
   }, [router]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 20_000);
+    const poll = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 60_000);
     return () => { window.clearTimeout(timer); window.clearInterval(poll); };
   }, [load]);
 
@@ -297,21 +297,15 @@ function SheetSyncBanner({ sync }: { sync: AdminData["sheetSync"] }) {
   // Silence used to be the failure mode here: a lost export meant the confirmation
   // agent never saw the order, and nothing on this page said so.
   if (sync.error) return <div className="sheet-sync-banner error">Google Sheets injoignable : {sync.error}</div>;
-  /**
-   * La synchronisation automatique tourne-t-elle vraiment ?
-   *
-   * Cette page synchronise a chaque chargement, ce qui masque completement le probleme :
-   * tout semble a jour tant qu'on la regarde. Sans le travail planifie, les livraisons et
-   * les retours ne remontent pas entre deux ouvertures -- et le chiffre d'affaires reconnu,
-   * qui ne compte que les commandes livrees, reste faux.
-   */
+  // The page only reads the database. This timestamp proves that the scheduled
+  // Google Sheets reconciliation is running independently from the dashboard.
   const lastRun = sync.lastScheduledSync ? Date.parse(sync.lastScheduledSync) : null;
   const silentFor = lastRun ? Math.round((Date.now() - lastRun) / 60000) : null;
   if (silentFor === null) {
-    return <div className="sheet-sync-banner error">La synchronisation automatique n’a jamais tourné. Les statuts de livraison ne se mettent à jour que pendant que cette page est ouverte : tant que c’est le cas, les commandes livrées et retournées remontent en retard.</div>;
+    return <div className="sheet-sync-banner error">La synchronisation automatique n’a jamais tourné. Les statuts Google Sheets peuvent être en retard ; vérifiez la tâche planifiée Railway.</div>;
   }
   if (silentFor > 60) {
-    return <div className="sheet-sync-banner error">La synchronisation automatique n’a pas tourné depuis {silentFor > 1440 ? `${Math.round(silentFor / 1440)} jour(s)` : `${silentFor} minutes`}. Les statuts de livraison ne remontent plus qu’à l’ouverture de cette page.</div>;
+    return <div className="sheet-sync-banner error">La synchronisation automatique n’a pas tourné depuis {silentFor > 1440 ? `${Math.round(silentFor / 1440)} jour(s)` : `${silentFor} minutes`}. Les statuts Google Sheets peuvent être en retard.</div>;
   }
   const parts: string[] = [];
   if (sync.depth.pending) parts.push(`${sync.depth.pending} commande(s) en attente d’export`);
