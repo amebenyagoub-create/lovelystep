@@ -321,3 +321,26 @@
 .negotiated-field{display:flex;align-items:center;gap:8px}
 .negotiated-field input{flex:1;min-width:0;border:1px solid var(--line);border-radius:11px;padding:11px;font-size:14px;font-weight:800}
 .negotiated-field span{font-size:12px;color:var(--muted);font-weight:800}
+
+/* Private WhatsApp-agent sandbox. It exercises the real model and live store
+   context, but its server route never applies the chosen action. */
+.agent-test-panel{display:grid;gap:18px}
+.agent-test-intro{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(320px,1.2fr);gap:28px;align-items:center;background:linear-gradient(135deg,#103c63,#1e416a);color:#fff}
+.agent-test-intro h2{margin:7px 0 0;font-size:clamp(27px,3vw,40px)}
+.agent-test-intro .admin-kicker{color:#ffb8a7}
+.agent-test-intro p{margin:0;color:#e3edf6;line-height:1.7}
+.agent-test-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,.8fr);gap:26px;align-items:start}
+.agent-test-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.agent-test-form label{display:grid;gap:6px;font-size:11px;font-weight:850;color:var(--navy)}
+.agent-test-form select,.agent-test-form textarea{width:100%;border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:#fff;color:var(--ink);font:inherit}
+.agent-test-form textarea{resize:vertical;line-height:1.55}
+.agent-test-message,.agent-test-form>button{grid-column:1/-1}
+.agent-test-form>button{min-height:46px}
+.agent-test-output{min-height:260px;padding:20px;border:1px solid var(--line);border-radius:16px;background:var(--cream)}
+.agent-test-output>span{font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--coral)}
+.agent-test-output>p{color:var(--muted);line-height:1.65}
+.agent-test-output blockquote{margin:18px 0;padding:18px;border:0;border-radius:14px;background:#fff;color:var(--navy);font-size:18px;font-weight:750;line-height:1.55}
+.agent-test-output dl{margin:0;display:grid;gap:8px}
+.agent-test-output dl>div{display:flex;justify-content:space-between;gap:12px;padding-top:8px;border-top:1px solid rgba(30,65,106,.12)}
+.agent-test-output dt{color:var(--muted);font-size:11px}.agent-test-output dd{margin:0;color:var(--navy);font-size:12px;font-weight:850;text-align:right}
+@media(max-width:850px){.agent-test-intro,.agent-test-grid{grid-template-columns:1fr}.agent-test-form{grid-template-columns:1fr}.agent-test-message,.agent-test-form>button{grid-column:auto}.agent-test-output{min-height:220px}}

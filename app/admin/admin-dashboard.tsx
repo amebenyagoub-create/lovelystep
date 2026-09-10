@@ -9,9 +9,10 @@ import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
+import AgentTestPanel from "./agent-test-panel";
 
 type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null }; lastScheduledSync: string | null }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
-type Tab = "overview" | "analytics" | "campaigns" | "meta" | "orders" | "products" | "store" | "delivery";
+type Tab = "overview" | "analytics" | "campaigns" | "meta" | "agent" | "orders" | "products" | "store" | "delivery";
 const money = (cents: number) => new Intl.NumberFormat("fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
 const productStock = (product: Product) => (product.variants.length ? product.variants : product.sizes).reduce((total, item) => total + Math.max(0, Math.floor(Number(item.stock) || 0)), 0);
 const orderLabels: Record<OrderStatus, string> = { new: "Nouvelle", to_confirm: "À confirmer", confirmed: "Confirmée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", refused: "Refusée", returned: "Retournée", cancelled: "Annulée" };
@@ -107,8 +108,8 @@ export default function AdminDashboard() {
 
   if (!data) return <main className="admin-loading"><Image src="/brand/lovelystep-logo.png" alt="" width={130} height={130} /><p>Chargement du dashboard…</p>{error && <p className="form-error">{error}</p>}</main>;
 
-  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
-  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "orders" ? "Commandes" : tab === "products" ? "Catalogue produits" : tab === "store" ? "Façade de la boutique" : "Livraison";
+  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["agent", "Agent WhatsApp", "◉"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
+  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "agent" ? "Test de l’agent WhatsApp" : tab === "orders" ? "Commandes" : tab === "products" ? "Catalogue produits" : tab === "store" ? "Façade de la boutique" : "Livraison";
   const primaryMobileTabs: Tab[] = ["overview", "orders", "products", "store"];
   const selectTab = (value: Tab) => {
     setTab(value);
@@ -126,6 +127,7 @@ export default function AdminDashboard() {
       {tab === "analytics" && <AnalyticsPanel />}
       {tab === "campaigns" && <CampaignIntelligencePanel csrfToken={data.csrfToken} />}
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
+      {tab === "agent" && <AgentTestPanel products={data.products} rates={data.deliveryRates} csrfToken={data.csrfToken} onError={setError} />}
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><OrdersTable orders={data.orders} onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
       {tab === "products" && <section className="admin-card">
         <div className="card-title">
