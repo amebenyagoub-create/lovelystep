@@ -341,7 +341,19 @@ export function codKpis(orders: Order[]): CodKpis {
 
   const deliveredOrders = orders.filter((order) => order.status === "delivered");
   const shippingCollectedForCarrierMinor = sum(deliveredOrders.map((order) => order.shippingCents));
-  const outboundDeliveryCostMinor = sum(orders.map((order) => order.deliveryCost?.carrierCostCents ?? 0));
+  /**
+   * Cout de transport sortant : les frais encaisses, pas une ligne de cout separee.
+   *
+   * Sur une commande livree, le client paie le transport et le livreur le remet a ZR. Le cout
+   * est donc EXACTEMENT ce qui a ete encaisse, et le resultat de livraison doit tomber a zero
+   * hors retours. En lisant deliveryCost, une commande dont la ligne de cout n'a pas encore ete
+   * calculee comptait 0 : le transport encaisse restait alors dans le resultat, et l'onglet
+   * Rentabilite affichait la livraison comme un centre de profit. Elle n'en est pas un.
+   */
+  const outboundDeliveryCostMinor = sum(deliveredOrders.map((order) => {
+    const recorded = order.deliveryCost?.carrierCostCents;
+    return recorded != null && recorded > 0 ? recorded : order.shippingCents;
+  }));
   const returnDeliveryCostMinor = sum(orders.map((order) => order.deliveryCost?.returnCostCents ?? 0));
   const netDeliveryResultMinor = shippingCollectedForCarrierMinor - outboundDeliveryCostMinor - returnDeliveryCostMinor;
 
