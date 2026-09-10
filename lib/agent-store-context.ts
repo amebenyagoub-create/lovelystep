@@ -1,4 +1,5 @@
 import type { DeliveryRate, Product } from "./types";
+import { frenchAgeLabel } from "./product-size";
 
 export type AgentStoreContext = {
   store: string;
@@ -13,7 +14,7 @@ export type AgentStoreContext = {
     priceDzd: number;
     compareAtDzd: number | null;
     colors: string[];
-    variants: Array<{ color: string; size: string; age: string; stock: number }>;
+    variants: Array<{ color: string; supplierSize: string; age: string; stock: number }>;
     totalStock: number;
   }>;
   delivery: Array<{
@@ -36,14 +37,14 @@ export function buildAgentStoreContext(products: Product[], rates: DeliveryRate[
       const variants = product.variants.length
         ? product.variants.map((variant) => ({
           color: variant.color,
-          size: variant.size,
-          age: variant.age || "",
+          supplierSize: variant.size,
+          age: frenchAgeLabel({ label: variant.size, age: variant.age }),
           stock: Math.max(0, Math.floor(Number(variant.stock) || 0)),
         }))
         : product.sizes.map((size) => ({
           color: product.color || product.colors[0] || "",
-          size: size.label,
-          age: size.age || "",
+          supplierSize: size.label,
+          age: frenchAgeLabel(size),
           stock: Math.max(0, Math.floor(Number(size.stock) || 0)),
         }));
       return {
