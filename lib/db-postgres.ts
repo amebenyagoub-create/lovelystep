@@ -188,6 +188,23 @@ export async function listOrderSheetStates(): Promise<Map<number, string>> { ret
 export async function rememberOrderSheetState(id: number, state: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET google_sheet_state=$1 WHERE id=$2", [state, id]); }
 /** Recopie le fil WhatsApp ecrit par l’agent. N’ecrit que si le texte a change, pour ne pas
  *  toucher whatsapp_log_at a chaque passage du cron et faire croire a une activite. */
+/**
+ * Cout de transport reellement facture par ZR, tel qu'il apparait dans la feuille.
+ *
+ * Ecrit avec la source 'zr' pour qu'il l'emporte sur l'estimation automatique : syncOrderDeliveryCost
+ * suppose que le cout egale le tarif encaisse, ce qui n'est vrai que si vous facturez au client
+ * exactement ce que ZR vous facture. Des que ZR a communique son montant, c'est lui qui fait foi.
+ */
+export async function recordCarrierFeeFromZr(orderId: number, feeCents: number): Promise<void> {
+  await ensureDatabase();
+  await pool.query(
+    `INSERT INTO order_delivery_costs (order_id,carrier_cost_cents,return_cost_cents,source)
+     VALUES ($1,$2,0,'zr')
+     ON CONFLICT (order_id) DO UPDATE SET carrier_cost_cents=EXCLUDED.carrier_cost_cents, source='zr', updated_at=NOW()
+     WHERE order_delivery_costs.source <> 'manual'`,
+    [orderId, Math.max(0, Math.round(feeCents))]);
+}
+
 export async function rememberOrderConversation(id: number, conversation: string): Promise<void> { await ensureDatabase(); await pool.query("UPDATE orders SET whatsapp_log=$1, whatsapp_log_at=NOW() WHERE id=$2 AND COALESCE(whatsapp_log,'') IS DISTINCT FROM $1", [conversation, id]); }
 
 /**
@@ -1486,7 +1503,7 @@ export async function syncOrderDeliveryCost(orderId: number): Promise<void> {
       `INSERT INTO order_delivery_costs (order_id,carrier_cost_cents,return_cost_cents,source) VALUES ($1,$2,$3,'auto')
        ON CONFLICT (order_id) DO UPDATE SET carrier_cost_cents=EXCLUDED.carrier_cost_cents,
          return_cost_cents=EXCLUDED.return_cost_cents, updated_at=NOW()
-       WHERE order_delivery_costs.source <> 'manual'`,
+       WHERE order_delivery_costs.source NOT IN ('manual','zr')`,
       [orderId, carrier, returned]);
   } catch {
     // Costing is reporting, never a blocker on the order itself.

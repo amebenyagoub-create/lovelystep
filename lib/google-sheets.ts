@@ -2,7 +2,7 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import { createSign } from "node:crypto";
-import { adoptSheetDelivery, listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, rememberOrderConversation, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
+import { adoptSheetDelivery, listOrders, listOrderSheetStates, listOrdersPendingSheetSync, markOrderSheetSynced, recordOrderSheetFailure, recordCarrierFeeFromZr, rememberOrderConversation, rememberOrderSheetState, updateOrderStatus } from "./db-postgres";
 import { log, errorMessage } from "./log";
 import { frenchAgeLabel } from "./product-size";
 import { siteUrl } from "./site-url";
@@ -545,6 +545,14 @@ export type SheetOrderRow = {
   conversation: string;
   tracking: string;
   parcelId: string;
+  /**
+   * Frais reellement factures par ZR pour ce colis, en centimes.
+   *
+   * Le tarif encaisse aupres du client n'est qu'une estimation du cout. L'ecart entre les deux
+   * est une marge quand vous facturez plus que ZR, une perte quand vous facturez moins — et
+   * personne ne le voyait, parce que le cout de transport etait suppose egal a l'encaissement.
+   */
+  carrierFeeCents: number | null;
 };
 
 /**
@@ -561,8 +569,8 @@ export async function readOrderStatesFromGoogleSheet(): Promise<SheetOrderRow[]>
   const config = sheetsConfig();
   if (!config) return [];
   await ensureHeaders(config);
-  const columns = await headerIndexes(config, ["convo_log", "zr_tracking", "zr_parcel_id"])
-    .catch(() => ({ convo_log: -1, zr_tracking: -1, zr_parcel_id: -1 } as Record<string, number>));
+  const columns = await headerIndexes(config, ["convo_log", "zr_tracking", "zr_parcel_id", "zr_delivery_fee"])
+    .catch(() => ({ convo_log: -1, zr_tracking: -1, zr_parcel_id: -1, zr_delivery_fee: -1 } as Record<string, number>));
   const response = await sheetsRequest<{ values?: unknown[][] }>(config.spreadsheetId, a1(config.tabName, "A2:BZ"));
   const cell = (row: unknown[], index: number) => (index >= 0 ? String(row[index] ?? "").trim() : "");
   return (response.values ?? []).flatMap((row) => {
@@ -572,8 +580,11 @@ export async function readOrderStatesFromGoogleSheet(): Promise<SheetOrderRow[]>
     const conversation = cell(row, columns.convo_log);
     const tracking = cell(row, columns.zr_tracking);
     const parcelId = cell(row, columns.zr_parcel_id);
-    if (!sheetState && !conversation && !tracking && !parcelId) return [];
-    return [{ orderNumber, sheetState, status: sheetState ? orderStatusFromSheetState(sheetState) : null, conversation, tracking, parcelId }];
+    // La feuille exprime les frais en dinars, la boutique compte en centimes.
+    const rawFee = Number(cell(row, columns.zr_delivery_fee).replace(",", "."));
+    const carrierFeeCents = Number.isFinite(rawFee) && rawFee > 0 ? Math.round(rawFee * 100) : null;
+    if (!sheetState && !conversation && !tracking && !parcelId && carrierFeeCents === null) return [];
+    return [{ orderNumber, sheetState, status: sheetState ? orderStatusFromSheetState(sheetState) : null, conversation, tracking, parcelId, carrierFeeCents }];
   });
 }
 
@@ -593,6 +604,10 @@ export async function syncOrderStatesFromGoogleSheet(): Promise<SheetStateSyncRe
     if (order && row.conversation) {
       order.whatsappLog = row.conversation;
       await rememberOrderConversation(order.id, row.conversation).catch(() => undefined);
+    }
+    // Le cout reel remplace l'estimation des que ZR a facture le colis.
+    if (order && row.carrierFeeCents !== null) {
+      await recordCarrierFeeFromZr(order.id, row.carrierFeeCents).catch(() => undefined);
     }
 
     /**

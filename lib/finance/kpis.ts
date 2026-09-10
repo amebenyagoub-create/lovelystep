@@ -342,13 +342,19 @@ export function codKpis(orders: Order[]): CodKpis {
   const deliveredOrders = orders.filter((order) => order.status === "delivered");
   const shippingCollectedForCarrierMinor = sum(deliveredOrders.map((order) => order.shippingCents));
   /**
-   * Cout de transport sortant : les frais encaisses, pas une ligne de cout separee.
+   * Cout de transport sortant, au montant REEL facture par ZR.
    *
-   * Sur une commande livree, le client paie le transport et le livreur le remet a ZR. Le cout
-   * est donc EXACTEMENT ce qui a ete encaisse, et le resultat de livraison doit tomber a zero
-   * hors retours. En lisant deliveryCost, une commande dont la ligne de cout n'a pas encore ete
-   * calculee comptait 0 : le transport encaisse restait alors dans le resultat, et l'onglet
-   * Rentabilite affichait la livraison comme un centre de profit. Elle n'en est pas un.
+   * Deux erreurs se cachaient ici. La premiere : une commande livree dont la ligne de cout
+   * n'existait pas encore comptait zero, si bien que le transport encaisse restait dans le
+   * resultat et que la livraison passait pour un centre de profit.
+   *
+   * La seconde, plus subtile : supposer que le cout egale l'encaissement rend le resultat nul
+   * par construction. Or vous ne facturez pas forcement au client ce que ZR vous facture. Le
+   * champ zr_delivery_fee de la feuille porte le montant reel, desormais recopie dans les couts
+   * avec la source 'zr'. L'ecart entre les deux est une marge quand vous facturez plus, une
+   * perte quand vous facturez moins — et c'est un chiffre qu'il faut voir, pas neutraliser.
+   *
+   * Le tarif encaisse ne sert plus que d'estimation, tant que ZR n'a pas facture.
    */
   const outboundDeliveryCostMinor = sum(deliveredOrders.map((order) => {
     const recorded = order.deliveryCost?.carrierCostCents;
