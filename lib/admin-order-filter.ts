@@ -2,6 +2,17 @@ import type { Order, OrderStatus } from "./types";
 
 export type AdminOrderStatusFilter = OrderStatus | "all";
 
+export function orderElapsedLabel(createdAt: string, now = Date.now()): string {
+  const totalMinutes = Math.max(0, Math.floor((now - Date.parse(createdAt)) / 60_000));
+  if (!Number.isFinite(totalMinutes)) return "Durée inconnue";
+  if (totalMinutes < 1) return "À l’instant";
+
+  const days = Math.floor(totalMinutes / 1_440);
+  const hours = Math.floor((totalMinutes % 1_440) / 60);
+  const minutes = totalMinutes % 60;
+  return `Il y a ${days ? `${days} j ` : ""}${hours || days ? `${hours} h ` : ""}${minutes} min`;
+}
+
 type SearchableOrder = Pick<Order,
   "status" | "orderNumber" | "customerName" | "firstName" | "lastName" | "phone" |
   "city" | "wilayaName" | "commune" | "deliveryHubName" | "deliveryTracking" | "deliveryExternalId"
