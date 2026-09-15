@@ -110,7 +110,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const regularSubtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const subtotal = pricedCart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const multiBuySavings = regularSubtotal - subtotal;
-  const multiBuyLabel = locale === "ar" ? `عرض قطعتين (خصم ${MULTI_BUY_DISCOUNT_PERCENT}٪)` : locale === "en" ? `2-item offer (${MULTI_BUY_DISCOUNT_PERCENT}% off)` : `Offre duo (-${MULTI_BUY_DISCOUNT_PERCENT} %)`;
+  const multiBuyLabel = locale === "ar" ? `عرض موديلين (خصم ${MULTI_BUY_DISCOUNT_PERCENT}٪)` : locale === "en" ? `2-style offer (${MULTI_BUY_DISCOUNT_PERCENT}% off)` : `Offre 2 modèles (-${MULTI_BUY_DISCOUNT_PERCENT} %)`;
   const categories = [...new Set(products.map((product) => product.category))];
   // Un tarif a zero veut dire « pas encore fixe », pas « livraison gratuite ». Ces wilayas
   // sortent donc de la liste : les proposer laissait passer des commandes ou la livraison

@@ -1,4 +1,4 @@
-export const MULTI_BUY_MIN_QUANTITY = 2;
+export const MULTI_BUY_MIN_PRODUCTS = 2;
 export const MULTI_BUY_DISCOUNT_PERCENT = 5;
 
 type PriceableItem = {
@@ -7,25 +7,19 @@ type PriceableItem = {
   unitPriceCents: number;
 };
 
-export function multiBuyUnitPriceCents(unitPriceCents: number, productQuantity: number) {
-  if (productQuantity < MULTI_BUY_MIN_QUANTITY) return unitPriceCents;
+function discountedUnitPriceCents(unitPriceCents: number) {
   return Math.round(unitPriceCents * (100 - MULTI_BUY_DISCOUNT_PERCENT) / 100);
 }
 
 export function priceMultiBuyItems<T extends PriceableItem>(items: readonly T[]): T[] {
-  const quantities = new Map<number, number>();
-  for (const item of items) quantities.set(item.productId, (quantities.get(item.productId) ?? 0) + item.quantity);
+  const qualifies = new Set(items.filter((item) => item.quantity > 0).map((item) => item.productId)).size >= MULTI_BUY_MIN_PRODUCTS;
 
   return items.map((item) => ({
     ...item,
-    unitPriceCents: multiBuyUnitPriceCents(item.unitPriceCents, quantities.get(item.productId) ?? item.quantity),
+    unitPriceCents: qualifies ? discountedUnitPriceCents(item.unitPriceCents) : item.unitPriceCents,
   }));
 }
 
 export function multiBuySubtotal(items: readonly PriceableItem[]) {
   return priceMultiBuyItems(items).reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
-}
-
-export function multiBuyProductTotal(unitPriceCents: number, quantity: number) {
-  return multiBuyUnitPriceCents(unitPriceCents, quantity) * quantity;
 }
