@@ -8,7 +8,7 @@ import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { trackMeta } from "@/lib/meta-pixel";
 import { contentId } from "@/lib/meta/events";
 import { loadAttribution } from "@/lib/meta/attribution";
-import { MULTI_BUY_DISCOUNT_PERCENT, priceMultiBuyItems } from "@/lib/multi-buy";
+import { MULTI_BUY_PRICE_CENTS, priceMultiBuyItems } from "@/lib/multi-buy";
 import { localizedAgeLabel } from "@/lib/product-size";
 import { isProductOutOfStock } from "@/lib/product-stock";
 import type { AlgeriaWilaya, Customer, DeliveryRate, DeliveryType, PublicProduct, StoreSettings } from "@/lib/types";
@@ -110,7 +110,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const regularSubtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const subtotal = pricedCart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const multiBuySavings = regularSubtotal - subtotal;
-  const multiBuyLabel = locale === "ar" ? `عرض موديلين (خصم ${MULTI_BUY_DISCOUNT_PERCENT}٪)` : locale === "en" ? `2-style offer (${MULTI_BUY_DISCOUNT_PERCENT}% off)` : `Offre 2 modèles (-${MULTI_BUY_DISCOUNT_PERCENT} %)`;
+  const multiBuyLabel = locale === "ar" ? `عرض موديلين · ${money(MULTI_BUY_PRICE_CENTS)}` : locale === "en" ? `2-style offer · ${money(MULTI_BUY_PRICE_CENTS)}` : `Offre 2 modèles · ${money(MULTI_BUY_PRICE_CENTS)}`;
   const categories = [...new Set(products.map((product) => product.category))];
   // Un tarif a zero veut dire « pas encore fixe », pas « livraison gratuite ». Ces wilayas
   // sortent donc de la liste : les proposer laissait passer des commandes ou la livraison
