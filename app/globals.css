@@ -564,3 +564,30 @@
   .admin-product-list article>.row-actions{grid-column:4;grid-row:1/3}
 }
 @media(max-width:800px){.admin-product-list article>.product-size-stock{grid-column:1/-1}}
+
+/* Offre multi-achat : la meme regle visuelle accompagne le prix du produit jusqu'au paiement. */
+.multi-buy-inline-note{margin:8px 0 0;color:#24724a;font-size:12px;font-weight:900;text-align:center}
+.multi-buy-saving{color:#24724a!important;font-weight:900}
+
+@media(max-width:800px){
+  .mobile-buy.multi-buy-sticky{display:grid;width:100vw;max-width:100vw;box-sizing:border-box;overflow:hidden;grid-template-columns:minmax(0,1fr) 112px;gap:9px;min-height:82px;padding:9px 12px max(9px,env(safe-area-inset-bottom));align-items:stretch}
+  .mobile-buy-offers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;min-width:0}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers>button{position:relative;display:flex;width:100%;min-width:0;min-height:62px;max-width:none;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;border:1px solid #dce3e9;border-radius:14px;background:#fff;color:var(--navy);padding:14px 8px 7px;text-align:left;box-shadow:none}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers>button.selected{border:2px solid var(--coral);background:#fff7f3;padding:13px 7px 6px}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers>button:disabled{opacity:.42}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers span{position:absolute;top:4px;left:7px;color:var(--coral);font-size:7px;font-weight:900;letter-spacing:.04em;white-space:nowrap}
+  .mobile-buy.multi-buy-sticky small,.mobile-buy.multi-buy-sticky strong{max-width:none;overflow:visible;text-overflow:clip;white-space:normal}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers small{font-size:9px;font-weight:800;color:var(--muted)}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers strong{font-size:12px;line-height:1.1}
+  .mobile-buy.multi-buy-sticky .mobile-buy-cta{display:flex;min-height:62px;max-width:none;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:0;border-radius:14px;background:var(--coral);color:#fff;padding:9px 10px;text-align:center}
+  .mobile-buy.multi-buy-sticky .mobile-buy-cta>span{font-size:11px;font-weight:900;line-height:1.15}
+  .mobile-buy.multi-buy-sticky .mobile-buy-cta>strong{font-size:14px}
+  .product-page footer{padding-bottom:112px}
+}
+
+@media(max-width:380px){
+  .mobile-buy.multi-buy-sticky{grid-template-columns:minmax(0,1fr) 102px;padding-inline:8px;gap:6px}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers>button{padding-inline:6px}
+  .mobile-buy.multi-buy-sticky .mobile-buy-offers>button.selected{padding-inline:5px}
+  .mobile-buy.multi-buy-sticky .mobile-buy-cta{padding-inline:7px}
+}

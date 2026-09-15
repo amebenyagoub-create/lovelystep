@@ -7,6 +7,7 @@ import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { algeriaWilayas } from "./algeria";
 import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, StoreSettings } from "./types";
 import { normalizeWhatsAppPhone, type WhatsAppOrderAction } from "./whatsapp/intent";
+import { priceMultiBuyItems } from "./multi-buy";
 
 type Row = QueryResultRow & Record<string, unknown>;
 const connectionString = process.env.DATABASE_URL ?? "postgresql://invalid:invalid@127.0.0.1:1/invalid";
@@ -436,7 +437,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
     }
 
     // Resolve every line against the catalogue: the client never supplies money.
-    const items: OrderItem[] = [];
+    const catalogueItems: OrderItem[] = [];
     for (const line of input.items) {
       const quantity = Math.floor(Number(line.quantity));
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Quantite invalide (1 a 10)." }; }
@@ -446,7 +447,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
       const color = String(line.color ?? "").trim();
       const size = String(line.size ?? "").trim();
       if (!size) { await client.query("ROLLBACK"); return { status: "invalid", reason: `Taille manquante pour ${product.name}.` }; }
-      items.push({
+      catalogueItems.push({
         productId: product.id,
         slug: product.slug,
         name: product.name,
@@ -458,6 +459,8 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
         unitCostCents: product.costCents,
       });
     }
+
+    const items = priceMultiBuyItems(catalogueItems);
 
     // Swap the reservation in one step so a failure leaves the original stock intact.
     if (reserved) {

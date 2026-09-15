@@ -8,6 +8,7 @@ import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { trackMeta } from "@/lib/meta-pixel";
 import { contentId } from "@/lib/meta/events";
 import { loadAttribution } from "@/lib/meta/attribution";
+import { MULTI_BUY_DISCOUNT_PERCENT, priceMultiBuyItems } from "@/lib/multi-buy";
 import { localizedAgeLabel } from "@/lib/product-size";
 import { isProductOutOfStock } from "@/lib/product-stock";
 import type { AlgeriaWilaya, Customer, DeliveryRate, DeliveryType, PublicProduct, StoreSettings } from "@/lib/types";
@@ -31,11 +32,12 @@ const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", 
 type PickupHub = { id: string; name: string; district: string };
 
 function trackCheckout(items: CartItem[]) {
+  const pricedItems = priceMultiBuyItems(items);
   trackMeta("InitiateCheckout", {
-    content_ids: items.map((item) => contentId(item.slug)),
-    contents: items.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+    content_ids: pricedItems.map((item) => contentId(item.slug)),
+    contents: pricedItems.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
     content_type: "product",
-    value: items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) / 100,
+    value: pricedItems.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) / 100,
     currency: "DZD",
     num_items: items.reduce((sum, item) => sum + item.quantity, 0),
   });
@@ -104,7 +106,11 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   useEffect(() => { void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "/" }) }).catch(() => undefined); }, []);
 
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const subtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const pricedCart = priceMultiBuyItems(cart);
+  const regularSubtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const subtotal = pricedCart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const multiBuySavings = regularSubtotal - subtotal;
+  const multiBuyLabel = locale === "ar" ? `عرض قطعتين (خصم ${MULTI_BUY_DISCOUNT_PERCENT}٪)` : locale === "en" ? `2-item offer (${MULTI_BUY_DISCOUNT_PERCENT}% off)` : `Offre duo (-${MULTI_BUY_DISCOUNT_PERCENT} %)`;
   const categories = [...new Set(products.map((product) => product.category))];
   // Un tarif a zero veut dire « pas encore fixe », pas « livraison gratuite ». Ces wilayas
   // sortent donc de la liste : les proposer laissait passer des commandes ou la livraison
@@ -176,7 +182,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       // Reusing it verbatim is what lets Meta collapse the two into one conversion.
       trackMeta("Purchase", {
         content_ids: cart.map((item) => contentId(item.slug)),
-        contents: cart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+        contents: pricedCart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
         content_type: "product",
         value: Number(data.totalCents || total) / 100,
         currency: "DZD",
@@ -222,15 +228,15 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       <aside className="cart-drawer" aria-label={t("cart")}>
         <div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>
         {cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <>
-          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div>
-          <div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{deliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
+          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(pricedCart[index].unitPriceCents * item.quantity)}</strong></div>)}</div>
+          <div className="cart-summary">{multiBuySavings > 0 && <div className="multi-buy-saving"><span>{multiBuyLabel}</span><strong>-{money(multiBuySavings)}</strong></div>}<div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{deliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
         </>}
       </aside>
     </>}
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
-      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(item.unitPriceCents * item.quantity)}</b></div>)}</div>}
+      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item, index) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(pricedCart[index].unitPriceCents * item.quantity)}</b></div>)}</div>}
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" inputMode="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
@@ -243,7 +249,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
               ? <p className="hub-note">{deliveryText.hubEmpty}</p>
               : <label>{deliveryText.hub}<select value={checkout.deliveryHubId} onChange={(event) => setCheckout({ ...checkout, deliveryHubId: event.target.value })} required><option value="">{deliveryText.hubChoose}</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.district ? `${hub.district} · ${hub.name}` : hub.name}</option>)}</select></label>
         )}
-        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{selectedRate ? t("orderHelp") : t("chooseWilayaFirst")}</small>
+        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown">{multiBuySavings > 0 && <span className="multi-buy-saving">{multiBuyLabel}<b>-{money(multiBuySavings)}</b></span>}<span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{selectedRate ? t("orderHelp") : t("chooseWilayaFirst")}</small>
       </form>}
     </section></div>}
     {accountOpen && <AccountModal customer={customer} wilayas={wilayas} locale={locale} t={t} onClose={() => setAccountOpen(false)} onCustomer={(value) => { setCustomer(value); setCheckout((state) => ({ ...state, fullName: `${value.firstName} ${value.lastName}`.trim(), phone: value.phone, wilayaCode: value.wilayaCode, commune: value.commune })); }} onLogout={() => { setCustomer(null); setCheckout(emptyCheckout); }} />}

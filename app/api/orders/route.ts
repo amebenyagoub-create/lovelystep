@@ -12,6 +12,7 @@ import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/per
 import { resolveSubmittedHub } from "@/lib/pickup-hubs";
 import { metaRequestContext } from "@/lib/meta/request";
 import { log } from "@/lib/log";
+import { priceMultiBuyItems } from "@/lib/multi-buy";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -89,7 +90,8 @@ export async function POST(request: Request) {
     });
   }
 
-  const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
+  const pricedItems = priceMultiBuyItems(items);
+  const subtotalCents = pricedItems.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
   const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
@@ -116,7 +118,7 @@ export async function POST(request: Request) {
     const hub = submitted?.status === "resolved" ? submitted.hub : null;
     const hubId = submitted?.status === "unavailable" ? submittedHubId : hub?.id ?? null;
     const customer = await getCustomerSession();
-    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items: pricedItems, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;

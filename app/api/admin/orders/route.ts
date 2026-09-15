@@ -7,6 +7,7 @@ import { pushOrderCancellationToGoogleSheet, queueOrderGoogleSheetSync } from "@
 import { log, errorMessage } from "@/lib/log";
 import { CATALOG_TAG } from "@/lib/public-cache";
 import { findWilaya } from "@/lib/algeria";
+import { priceMultiBuyItems } from "@/lib/multi-buy";
 import type { OrderItem, OrderStatus } from "@/lib/types";
 
 const statuses: OrderStatus[] = ["new","to_confirm","confirmed","preparing","shipped","delivered","refused","returned","cancelled"];
@@ -184,7 +185,8 @@ export async function POST(request: Request) {
     });
   }
 
-  const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
+  const pricedItems = priceMultiBuyItems(items);
+  const subtotalCents = pricedItems.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const rate = await getDeliveryRate(wilaya.code);
   if (!rate) return NextResponse.json({ error: "Wilaya sans tarif de livraison." }, { status: 409 });
   const shippingCents = Math.max(0, Math.round(Number(deliveryType === "office" ? rate.officeCents : rate.homeCents) || 0));
@@ -203,7 +205,7 @@ export async function POST(request: Request) {
       address: String(body.address ?? "").trim(),
       deliveryType,
       notes: String(body.notes ?? "").trim().slice(0, 500),
-      items, subtotalCents: finalSubtotalCents, shippingCents, totalCents: finalSubtotalCents + shippingCents,
+      items: pricedItems, subtotalCents: finalSubtotalCents, shippingCents, totalCents: finalSubtotalCents + shippingCents,
     });
     revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));

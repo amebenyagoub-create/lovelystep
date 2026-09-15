@@ -7,6 +7,7 @@ import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useId, useMe
 import type { DeliveryRate, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
 import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
 import { filterAdminOrders, orderElapsedLabel, type AdminOrderStatusFilter } from "@/lib/admin-order-filter";
+import { priceMultiBuyItems } from "@/lib/multi-buy";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
@@ -452,7 +453,8 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
 
   const patch = (index: number, next: Partial<OrderEditLine>) => setLines((current) => current.map((line, position) => position === index ? { ...line, ...next } : line));
   const rate = deliveryRates.find((item) => item.wilayaCode === wilayaCode);
-  const subtotal = lines.reduce((total, line) => total + (productOf(line.productId)?.priceCents ?? 0) * line.quantity, 0);
+  const pricedLines = priceMultiBuyItems(lines.map((line) => ({ ...line, unitPriceCents: productOf(line.productId)?.priceCents ?? 0 })));
+  const subtotal = pricedLines.reduce((total, line) => total + line.unitPriceCents * line.quantity, 0);
   const shipping = rate ? (deliveryType === "office" ? rate.officeCents : rate.homeCents) : 0;
   const negotiatedCents = negotiated.trim() ? Math.round(Number(negotiated.trim().replace(",", ".")) * 100) : null;
   const effectiveTotal = negotiatedCents !== null && Number.isFinite(negotiatedCents) ? negotiatedCents : subtotal + shipping;
@@ -490,7 +492,7 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
             <label>Couleur<select value={line.color} onChange={(event) => { const color = event.target.value; patch(index, { color, size: sizesOf(product, color)[0]?.label ?? "" }); }}>{colors.map((color) => <option key={color} value={color}>{color || "—"}</option>)}</select></label>
             <label>Taille<select value={line.size} onChange={(event) => patch(index, { size: event.target.value })} required><option value="">Choisir…</option>{sizes.map((size) => <option key={size.label} value={size.label}>{size.label} ({size.stock} en stock)</option>)}</select></label>
             <label>Qté<input type="number" min="1" max="10" value={line.quantity} onChange={(event) => patch(index, { quantity: Math.min(10, Math.max(1, Number(event.target.value) || 1)) })} /></label>
-            <div className="order-edit-line-end"><strong>{money((product?.priceCents ?? 0) * line.quantity)}</strong><button type="button" className="order-delete-button" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}>Retirer</button></div>
+            <div className="order-edit-line-end"><strong>{money((pricedLines[index]?.unitPriceCents ?? product?.priceCents ?? 0) * line.quantity)}</strong><button type="button" className="order-delete-button" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}>Retirer</button></div>
           </div>;
         })}
       </div>
