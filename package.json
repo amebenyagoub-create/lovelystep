@@ -23,6 +23,7 @@
     "test:meta": "node --env-file=.env.local scripts/test-meta-tracking.mjs",
     "test:meta-funnel": "node --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-meta-funnel-capi.mjs",
     "test:meta-ads": "node --env-file=.env.local scripts/test-meta-ads-catalog.mjs",
+    "test:tiktok": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-tiktok-tracking.mjs",
     "meta:bootstrap": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/meta-bootstrap.mjs",
     "cron:meta-sync": "node scripts/cron-meta-sync.mjs",
     "cron:sheet-sync": "node scripts/cron-sheet-sync.mjs",

@@ -9,7 +9,7 @@ import { parseStoredCart, type CartItem } from "@/lib/cart";
 import { localizedAgeLabel, recommendSize, recommendedHeightLabel } from "@/lib/product-size";
 import { isProductOutOfStock } from "@/lib/product-stock";
 import type { PublicProduct } from "@/lib/types";
-import { trackMeta } from "@/lib/meta-pixel";
+import { trackCommerce } from "@/lib/commerce-tracking";
 import { marketingAllowed } from "@/lib/meta/consent";
 import { contentId } from "@/lib/meta/events";
 import { useConsent } from "@/lib/meta/use-consent";
@@ -114,7 +114,7 @@ export default function ProductDetail({ product, related }: { product: PublicPro
   useEffect(() => {
     if (!trackingAllowed) return;
     // Let MetaPixel initialize and emit PageView first, including just after consent is granted.
-    const timer = window.setTimeout(() => trackMeta("ViewContent", { content_ids: [contentId(product.slug)], content_type: "product", content_name: product.name, content_category: product.category, value: product.priceCents / 100, currency: "DZD" }), 0);
+    const timer = window.setTimeout(() => trackCommerce("ViewContent", { content_ids: [contentId(product.slug)], content_type: "product", content_name: product.name, content_category: product.category, value: product.priceCents / 100, currency: "DZD" }), 0);
     return () => window.clearTimeout(timer);
   }, [trackingAllowed, product.id, product.priceCents, product.slug, product.name, product.category]);
 
@@ -169,7 +169,7 @@ export default function ProductDetail({ product, related }: { product: PublicPro
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
     const pricedAdditions = priceMultiBuyItems(additions);
     const addedTotal = pricedAdditions.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
-    trackMeta("AddToCart", { content_ids: additions.map((item) => contentId(item.slug)), content_type: "product", content_name: additions.map((item) => item.name).join(" + "), content_category: product.category, contents: pricedAdditions.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })), value: addedTotal / 100, currency: "DZD", num_items: additions.reduce((total, item) => total + item.quantity, 0) });
+    trackCommerce("AddToCart", { content_ids: additions.map((item) => contentId(item.slug)), content_type: "product", content_name: additions.map((item) => item.name).join(" + "), content_category: product.category, contents: pricedAdditions.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })), value: addedTotal / 100, currency: "DZD", num_items: additions.reduce((total, item) => total + item.quantity, 0) });
     router.push(destination === "checkout" ? "/?checkout=1" : "/?bag=1");
   }
 

@@ -11,6 +11,8 @@ import { purchaseEventId } from "@/lib/meta/events";
 import { parseAttributionPayload, persistOrderAttribution } from "@/lib/meta/persist-attribution";
 import { resolveSubmittedHub } from "@/lib/pickup-hubs";
 import { metaRequestContext } from "@/lib/meta/request";
+import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
+import { tiktokRequestContext } from "@/lib/tiktok/request";
 import { log } from "@/lib/log";
 import { priceMultiBuyItems } from "@/lib/multi-buy";
 import type { DeliveryType, OrderItem } from "@/lib/types";
@@ -121,9 +123,10 @@ export async function POST(request: Request) {
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items: pricedItems, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
+    const tiktokContext = tiktokRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
     after(() => persistOrderAttribution(order.id, attribution, metaContext));
-    after(() => sendPurchaseEvent(order, metaContext));
+    after(() => Promise.allSettled([sendPurchaseEvent(order, metaContext), sendTikTokPurchase(order, metaContext, tiktokContext)]).then(() => undefined));
     // Stock just changed: the sold-out badge and the size picker must not lag.
     revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));

@@ -1,7 +1,9 @@
 import { metaConfig } from "@/lib/meta/config";
+import { tiktokConfig } from "@/lib/tiktok/config";
 import { cachedTrackingDisabled } from "@/lib/public-cache";
 import AttributionTracker from "./attribution-tracker";
 import MetaPixel from "./meta-pixel";
+import TikTokPixel from "./tiktok-pixel";
 
 /**
  * Tracking for the public storefront.
@@ -19,5 +21,7 @@ export default async function StoreTracking() {
   // Admin kill switch: removes the browser Pixel as well as server-side events.
   const disabled = await cachedTrackingDisabled();
   const pixelId = disabled ? "" : metaConfig().pixelId;
-  return <><MetaPixel pixelId={pixelId} /><AttributionTracker /></>;
+  const tikTok = tiktokConfig();
+  const tikTokPixelId = disabled || !tikTok.enabled ? "" : tikTok.pixelId;
+  return <><MetaPixel pixelId={pixelId} /><TikTokPixel pixelId={tikTokPixelId} /><AttributionTracker /></>;
 }

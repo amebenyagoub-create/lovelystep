@@ -5,7 +5,7 @@ import Link from "next/link";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import LanguageSwitcher from "./language-switcher";
 import { parseStoredCart, type CartItem } from "@/lib/cart";
-import { trackMeta } from "@/lib/meta-pixel";
+import { trackCommerce } from "@/lib/commerce-tracking";
 import { contentId } from "@/lib/meta/events";
 import { loadAttribution } from "@/lib/meta/attribution";
 import { MULTI_BUY_PRICE_CENTS, priceMultiBuyItems } from "@/lib/multi-buy";
@@ -33,7 +33,7 @@ type PickupHub = { id: string; name: string; district: string };
 
 function trackCheckout(items: CartItem[]) {
   const pricedItems = priceMultiBuyItems(items);
-  trackMeta("InitiateCheckout", {
+  trackCommerce("InitiateCheckout", {
     content_ids: pricedItems.map((item) => contentId(item.slug)),
     contents: pricedItems.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
     content_type: "product",
@@ -161,7 +161,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       return found ? current.map((item) => item === found ? { ...item, quantity: Math.min(10, item.quantity + 1) } : item)
         : [...current, { productId: product.id, slug: product.slug, name: display.name, image, size, sizeLabel, color, quantity: 1, unitPriceCents: product.priceCents }];
     });
-    trackMeta("AddToCart", { content_ids: [contentId(product.slug)], content_type: "product", content_name: display.name, content_category: product.category, contents: [{ id: contentId(product.slug), quantity: 1, item_price: product.priceCents / 100 }], value: product.priceCents / 100, currency: "DZD", num_items: 1 });
+    trackCommerce("AddToCart", { content_ids: [contentId(product.slug)], content_type: "product", content_name: display.name, content_category: product.category, contents: [{ id: contentId(product.slug), quantity: 1, item_price: product.priceCents / 100 }], value: product.priceCents / 100, currency: "DZD", num_items: 1 });
     setCartOpen(true);
   }
 
@@ -180,7 +180,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       if (!response.ok) { setMessage(data.error || t("accountError")); return; }
       // data.metaEventId comes from the server, which already sent the same event via CAPI.
       // Reusing it verbatim is what lets Meta collapse the two into one conversion.
-      trackMeta("Purchase", {
+      trackCommerce("Purchase", {
         content_ids: cart.map((item) => contentId(item.slug)),
         contents: pricedCart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
         content_type: "product",
@@ -272,7 +272,7 @@ function AccountModal({ customer, wilayas, locale, t, onClose, onCustomer, onLog
       const value = await response.json().catch(() => ({}));
       if (!response.ok) setMessage(value.error || t("accountError"));
       else {
-        if (mode === "register") trackMeta("CompleteRegistration", { content_name: "customer_account", currency: "DZD" }, value.metaEventId);
+        if (mode === "register") trackCommerce("CompleteRegistration", { content_name: "customer_account", currency: "DZD" }, value.metaEventId);
         onCustomer(value.customer as Customer);
       }
     } catch { setMessage(t("accountError")); } finally { setBusy(false); }
