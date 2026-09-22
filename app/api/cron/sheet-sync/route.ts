@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { lastScheduledSheetSyncAt, markScheduledSheetSync, sheetOutboxDepth } from "@/lib/db-postgres";
+import { processAbandonedCheckoutReminders } from "@/lib/abandoned-cart-reminders";
 import { drainOrderSheetOutbox, syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 import { log, errorMessage } from "@/lib/log";
 
@@ -38,6 +39,15 @@ export async function POST(request: Request) {
 
   const outcome: Record<string, unknown> = {};
   let ok = true;
+
+  try {
+    // Cart recovery belongs to the same already-scheduled worker. One cron is
+    // simpler to monitor, and a Sheets outage must not block WhatsApp reminders.
+    outcome.abandonedCarts = await processAbandonedCheckoutReminders();
+  } catch (error) {
+    outcome.abandonedCartsError = errorMessage(error, "Échec des rappels de panier");
+    log.actionRequired("abandoned_cart_reminders_failed", { message: outcome.abandonedCartsError });
+  }
 
   try {
     outcome.outbox = await drainOrderSheetOutbox(100);

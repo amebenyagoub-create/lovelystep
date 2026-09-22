@@ -5,9 +5,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { algeriaWilayas } from "./algeria";
-import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, StoreSettings } from "./types";
+import { ABANDONED_REMINDER_DELAY_MINUTES } from "./checkout-draft";
+import type { AbandonedCheckout, Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, StoreSettings } from "./types";
 import { normalizeWhatsAppPhone, type WhatsAppOrderAction } from "./whatsapp/intent";
-import { priceMultiBuyItems } from "./multi-buy";
 
 type Row = QueryResultRow & Record<string, unknown>;
 const connectionString = process.env.DATABASE_URL ?? "postgresql://invalid:invalid@127.0.0.1:1/invalid";
@@ -152,6 +152,116 @@ function mapOrder(row: Row): Order {
     deliveryType:(row.delivery_type==="office"?"office":"home") as DeliveryType,deliveryHubId:row.delivery_hub_id==null?null:String(row.delivery_hub_id),deliveryHubName:row.delivery_hub_name==null?null:String(row.delivery_hub_name),sheetState:row.google_sheet_state==null?null:String(row.google_sheet_state),whatsappLog:row.whatsapp_log==null?null:String(row.whatsapp_log),whatsappLogAt:row.whatsapp_log_at==null?null:new Date(row.whatsapp_log_at as string).toISOString(),deliveryExternalId:row.delivery_external_id==null?null:String(row.delivery_external_id),deliveryTracking:row.delivery_tracking==null?null:String(row.delivery_tracking),deliverySyncStatus:String(row.delivery_sync_status??"not_configured") as Order["deliverySyncStatus"],
     deliverySyncError:row.delivery_sync_error==null?null:String(row.delivery_sync_error),notes:String(row.notes??""),status:String(row.status) as OrderStatus,items:parseJson<OrderItem[]>(row.items_json,[]),
     subtotalCents:Number(row.subtotal_cents),shippingCents:Number(row.shipping_cents),totalCents:Number(row.total_cents),statusHistory:[],refunds:[],deliveryCost:null,attribution:null,sheetSyncedAt:row.sheet_synced_at==null?null:timestamp(row.sheet_synced_at),sheetAttempts:Number(row.sheet_attempts??0),sheetLastError:row.sheet_last_error==null?null:String(row.sheet_last_error),createdAt:timestamp(row.created_at),updatedAt:timestamp(row.updated_at) };
+}
+
+function mapAbandonedCheckout(row: Row): AbandonedCheckout {
+  return {
+    id: Number(row.id),
+    checkoutToken: String(row.checkout_token),
+    customerName: String(row.customer_name ?? ""),
+    phone: String(row.phone),
+    locale: (row.locale === "en" || row.locale === "ar" ? row.locale : "fr") as AbandonedCheckout["locale"],
+    consentWhatsapp: Boolean(row.consent_whatsapp),
+    items: parseJson<OrderItem[]>(row.items_json, []),
+    subtotalCents: Number(row.subtotal_cents),
+    reminderDueAt: timestamp(row.reminder_due_at),
+    reminderStatus: String(row.reminder_status) as AbandonedCheckout["reminderStatus"],
+    reminderAttemptedAt: row.reminder_attempted_at == null ? null : timestamp(row.reminder_attempted_at),
+    reminderSentAt: row.reminder_sent_at == null ? null : timestamp(row.reminder_sent_at),
+    reminderError: row.reminder_error == null ? null : String(row.reminder_error),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+export type AbandonedCheckoutInput = {
+  checkoutToken: string;
+  customerName: string;
+  phone: string;
+  locale: AbandonedCheckout["locale"];
+  consentWhatsapp: boolean;
+  items: OrderItem[];
+  subtotalCents: number;
+  ipHash: string;
+};
+
+export class AbandonedCheckoutRateLimitError extends Error {
+  constructor() { super("ABANDONED_CHECKOUT_RATE_LIMIT"); }
+}
+
+/** Saves the latest browser state without reserving stock or creating an order. */
+export async function upsertAbandonedCheckout(input: AbandonedCheckoutInput): Promise<AbandonedCheckout> {
+  await ensureDatabase();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM abandoned_checkouts WHERE updated_at < NOW() - INTERVAL '30 days'");
+    const existing = await client.query("SELECT 1 FROM abandoned_checkouts WHERE checkout_token=$1", [input.checkoutToken]);
+    if (!existing.rows[0]) {
+      const recent = await client.query("SELECT count(*)::int count FROM abandoned_checkouts WHERE ip_hash=$1 AND created_at > NOW() - INTERVAL '1 hour'", [input.ipHash]);
+      if (Number(recent.rows[0]?.count ?? 0) >= 30) throw new AbandonedCheckoutRateLimitError();
+    }
+    const result = await client.query(`INSERT INTO abandoned_checkouts
+      (checkout_token,customer_name,phone,locale,consent_whatsapp,items_json,subtotal_cents,ip_hash,reminder_due_at)
+      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,NOW()+($9::int*INTERVAL '1 minute'))
+      ON CONFLICT(checkout_token) DO UPDATE SET
+        customer_name=EXCLUDED.customer_name,phone=EXCLUDED.phone,locale=EXCLUDED.locale,
+        consent_whatsapp=EXCLUDED.consent_whatsapp,items_json=EXCLUDED.items_json,
+        subtotal_cents=EXCLUDED.subtotal_cents,ip_hash=EXCLUDED.ip_hash,
+        reminder_due_at=CASE WHEN abandoned_checkouts.reminder_status='pending' THEN NOW()+($9::int*INTERVAL '1 minute') ELSE abandoned_checkouts.reminder_due_at END,
+        updated_at=NOW()
+      RETURNING *`, [input.checkoutToken, input.customerName, input.phone, input.locale, input.consentWhatsapp, JSON.stringify(input.items), input.subtotalCents, input.ipHash, ABANDONED_REMINDER_DELAY_MINUTES]);
+    await client.query("COMMIT");
+    return mapAbandonedCheckout(result.rows[0]);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deleteAbandonedCheckout(checkoutToken: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query("DELETE FROM abandoned_checkouts WHERE checkout_token=$1", [checkoutToken]);
+}
+
+export async function deleteAbandonedCheckoutById(id: number): Promise<boolean> {
+  await ensureDatabase();
+  return Boolean((await pool.query("DELETE FROM abandoned_checkouts WHERE id=$1 RETURNING id", [id])).rows[0]);
+}
+
+export async function listAbandonedCheckouts(): Promise<AbandonedCheckout[]> {
+  return (await rows("SELECT * FROM abandoned_checkouts WHERE updated_at >= NOW()-INTERVAL '30 days' ORDER BY updated_at DESC LIMIT 250")).map(mapAbandonedCheckout);
+}
+
+export async function purgeExpiredAbandonedCheckouts(): Promise<number> {
+  await ensureDatabase();
+  return (await pool.query("DELETE FROM abandoned_checkouts WHERE updated_at < NOW()-INTERVAL '30 days' RETURNING id")).rowCount ?? 0;
+}
+
+/** Claims due rows once. A failed send is terminal so a customer never receives duplicates. */
+export async function claimAbandonedCheckoutsForReminder(limit = 25): Promise<AbandonedCheckout[]> {
+  await ensureDatabase();
+  await pool.query(`UPDATE abandoned_checkouts
+    SET reminder_status='failed',reminder_error='Fenêtre de rappel dépassée'
+    WHERE consent_whatsapp=TRUE AND reminder_status='pending'
+      AND reminder_due_at < NOW()-INTERVAL '30 minutes'`);
+  const result = await pool.query(`WITH due AS (
+      SELECT id FROM abandoned_checkouts
+      WHERE consent_whatsapp=TRUE AND reminder_status='pending'
+        AND reminder_due_at<=NOW() AND reminder_due_at>=NOW()-INTERVAL '30 minutes'
+      ORDER BY reminder_due_at ASC LIMIT $1 FOR UPDATE SKIP LOCKED
+    )
+    UPDATE abandoned_checkouts draft SET reminder_status='processing',reminder_attempted_at=NOW(),reminder_error=NULL
+    FROM due WHERE draft.id=due.id RETURNING draft.*`, [Math.max(1, Math.min(100, Math.floor(limit)))]);
+  return result.rows.map(mapAbandonedCheckout);
+}
+
+export async function finishAbandonedCheckoutReminder(id: number, sent: boolean, error: string | null = null): Promise<void> {
+  await ensureDatabase();
+  await pool.query(`UPDATE abandoned_checkouts SET reminder_status=$1,reminder_sent_at=$2,reminder_error=$3 WHERE id=$4 AND reminder_status='processing'`,
+    [sent ? "sent" : "failed", sent ? new Date() : null, sent ? null : String(error ?? "Échec WhatsApp").slice(0, 500), id]);
 }
 function mapAttribution(row: Row): OrderAttribution { return { orderId:Number(row.order_id),isMetaLastTouch:Boolean(row.is_meta_last_touch),isMetaFirstTouch:Boolean(row.is_meta_first_touch),
   utmSource:row.utm_source==null?null:String(row.utm_source),utmMedium:row.utm_medium==null?null:String(row.utm_medium),utmCampaign:row.utm_campaign==null?null:String(row.utm_campaign),
@@ -321,8 +431,8 @@ async function changeStock(client: PoolClient, items: OrderItem[], direction: -1
     if(product.variants.length){let index=product.variants.findIndex((v)=>v.size===item.size&&v.color===(item.color??""));if(index<0&&direction===1){product.variants.push({color:item.color??"",size:item.size,stock:0});index=product.variants.length-1;}if(index<0)throw new StockUnavailableError();const stock=Math.max(0,Math.floor(Number(product.variants[index].stock)||0));if(direction===-1&&stock<quantity)throw new StockUnavailableError();product.variants[index]={...product.variants[index],stock:stock+direction*quantity};await client.query("UPDATE products SET variants_json=$1::jsonb,sizes_json=$2::jsonb,updated_at=NOW() WHERE id=$3",[JSON.stringify(product.variants),JSON.stringify(aggregateVariantSizes(product.variants)),product.id]);
     }else{let index=product.sizes.findIndex((s)=>s.label===item.size);if(index<0&&direction===1){product.sizes.push({label:item.size,stock:0});index=product.sizes.length-1;}if(index<0)throw new StockUnavailableError();const stock=Math.max(0,Math.floor(Number(product.sizes[index].stock)||0));if(direction===-1&&stock<quantity)throw new StockUnavailableError();product.sizes[index]={...product.sizes[index],stock:stock+direction*quantity};await client.query("UPDATE products SET sizes_json=$1::jsonb,updated_at=NOW() WHERE id=$2",[JSON.stringify(product.sizes),product.id]);}}
 }
-type CreateOrderInput={customerId:number|null;firstName:string;lastName:string;customerName:string;phone:string;city:string;wilayaCode:string;wilayaName:string;commune:string;address:string;deliveryType:DeliveryType;deliveryHubId?:string|null;deliveryHubName?:string|null;notes:string;items:OrderItem[];subtotalCents:number;shippingCents:number;totalCents:number};
-export async function createOrder(input:CreateOrderInput):Promise<Order>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");await changeStock(client,input.items,-1);const number=`LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;const result=await client.query(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16::jsonb,$17,$18,$19,TRUE) RETURNING *`,[number,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId??null,input.deliveryHubName??null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents]);await client.query("COMMIT");return mapOrder(result.rows[0]);}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+type CreateOrderInput={customerId:number|null;firstName:string;lastName:string;customerName:string;phone:string;city:string;wilayaCode:string;wilayaName:string;commune:string;address:string;deliveryType:DeliveryType;deliveryHubId?:string|null;deliveryHubName?:string|null;notes:string;items:OrderItem[];subtotalCents:number;shippingCents:number;totalCents:number;checkoutToken?:string|null};
+export async function createOrder(input:CreateOrderInput):Promise<Order>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");await changeStock(client,input.items,-1);const number=`LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;const result=await client.query(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16::jsonb,$17,$18,$19,TRUE) RETURNING *`,[number,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId??null,input.deliveryHubName??null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents]);await client.query("DELETE FROM abandoned_checkouts WHERE phone=$1 OR ($2::text IS NOT NULL AND checkout_token=$2)",[input.phone,input.checkoutToken??null]);await client.query("COMMIT");return mapOrder(result.rows[0]);}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
 export async function updateDeliverySync(id:number,patch:{status:Order["deliverySyncStatus"];externalId?:string|null;error?:string|null}):Promise<void>{await ensureDatabase();await pool.query("UPDATE orders SET delivery_sync_status=$1,delivery_external_id=$2,delivery_sync_error=$3,updated_at=NOW() WHERE id=$4",[patch.status,patch.externalId??null,patch.error??null,id]);}
 /**
  * Recopie dans la boutique le colis cree par l'agent de confirmation.
@@ -437,7 +547,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
     }
 
     // Resolve every line against the catalogue: the client never supplies money.
-    const catalogueItems: OrderItem[] = [];
+    const items: OrderItem[] = [];
     for (const line of input.items) {
       const quantity = Math.floor(Number(line.quantity));
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) { await client.query("ROLLBACK"); return { status: "invalid", reason: "Quantite invalide (1 a 10)." }; }
@@ -447,7 +557,7 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
       const color = String(line.color ?? "").trim();
       const size = String(line.size ?? "").trim();
       if (!size) { await client.query("ROLLBACK"); return { status: "invalid", reason: `Taille manquante pour ${product.name}.` }; }
-      catalogueItems.push({
+      items.push({
         productId: product.id,
         slug: product.slug,
         name: product.name,
@@ -459,8 +569,6 @@ export async function updateOrderDetails(id: number, input: OrderEditInput, admi
         unitCostCents: product.costCents,
       });
     }
-
-    const items = priceMultiBuyItems(catalogueItems);
 
     // Swap the reservation in one step so a failure leaves the original stock intact.
     if (reserved) {

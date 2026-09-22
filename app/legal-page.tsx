@@ -45,7 +45,7 @@ function OptOutButton({ locale }: { locale: keyof typeof optOutCopy }) {
 }
 
 const CONTACT = "piece.detaches16@gmail.com";
-const UPDATED = "2026-09-20";
+const UPDATED = "2026-09-22";
 
 const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
   fr: {
@@ -83,6 +83,13 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           paragraphs: [
             "Après votre commande, notre agent de confirmation peut vous contacter sur WhatsApp au numéro fourni afin de vérifier les informations et votre décision avant l'expédition.",
             "L'échange passe par WhatsApp Cloud API, un service de Meta. Les identifiants techniques, les actions choisies et les messages nécessaires au suivi de la commande peuvent être conservés afin de traiter correctement votre réponse.",
+          ],
+        },
+        {
+          title: "Panier enregistré provisoirement",
+          paragraphs: [
+            "Lorsque vous commencez la commande et saisissez un numéro de téléphone valide, nous enregistrons provisoirement le contenu du panier afin de pouvoir le retrouver dans notre administration.",
+            "Si vous cochez volontairement l’autorisation affichée dans le formulaire, nous pouvons envoyer un seul rappel WhatsApp environ 45 minutes plus tard. Sans cette autorisation, aucun rappel n’est envoyé. Le panier provisoire est supprimé dès que la commande est passée, ou automatiquement au plus tard après 30 jours.",
           ],
         },
         {
@@ -203,6 +210,13 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           ],
         },
         {
+          title: "Provisional cart save",
+          paragraphs: [
+            "When you start checkout and enter a valid phone number, we temporarily save the cart contents so they can be recovered in our administration.",
+            "If you voluntarily tick the permission shown in the form, we may send one WhatsApp reminder about 45 minutes later. No reminder is sent without that permission. The provisional cart is erased when the order is placed, or automatically after no more than 30 days.",
+          ],
+        },
+        {
           title: "Advertising measurement",
           paragraphs: [
             "We use the Meta and TikTok Pixels and their conversion APIs to understand which adverts lead to orders. Measurement is active by default when you visit the shop.",
@@ -317,6 +331,13 @@ const content: Record<"fr" | "en" | "ar", Record<LegalKind, Content>> = {
           paragraphs: [
             "بعد تسجيل الطلب، قد يتواصل معكم مساعد التأكيد عبر واتساب على الرقم الذي قدمتموه للتحقق من المعلومات وقراركم قبل الشحن.",
             "يمر التبادل عبر WhatsApp Cloud API التابع لـ Meta. قد نحتفظ بالمعرّفات التقنية والإجراءات المختارة والرسائل اللازمة لمتابعة الطلب ومعالجة ردكم بشكل صحيح.",
+          ],
+        },
+        {
+          title: "الحفظ المؤقت للسلة",
+          paragraphs: [
+            "عند بدء الطلب وإدخال رقم هاتف صحيح، نحفظ محتوى السلة مؤقتاً حتى نتمكن من العثور عليه في لوحة الإدارة.",
+            "إذا وافقتم باختيار الخانة الظاهرة في الاستمارة، يمكننا إرسال تذكير واحد عبر واتساب بعد نحو 45 دقيقة. لا نرسل أي تذكير دون هذه الموافقة. تُحذف السلة المؤقتة عند إتمام الطلب أو تلقائياً خلال مدة أقصاها 30 يوماً.",
           ],
         },
         {

@@ -3,6 +3,7 @@ import { after } from "next/server";
 import { revalidateTag } from "next/cache";
 import { CATALOG_TAG } from "@/lib/public-cache";
 import { validAlgeriaAddress } from "@/lib/algeria";
+import { isValidCheckoutDraftToken } from "@/lib/checkout-draft";
 import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
 import { allowOrderAttempt, allowOrderForPhone, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
@@ -14,7 +15,6 @@ import { metaRequestContext } from "@/lib/meta/request";
 import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
 import { tiktokRequestContext } from "@/lib/tiktok/request";
 import { log } from "@/lib/log";
-import { priceMultiBuyItems } from "@/lib/multi-buy";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
   if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
   if (!await allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
-  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; deliveryHubId?: string; address?: string; notes?: string; locale?: "fr" | "en" | "ar"; items?: RequestItem[]; attribution?: unknown };
+  const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; deliveryHubId?: string; address?: string; notes?: string; checkoutToken?: string; locale?: "fr" | "en" | "ar"; items?: RequestItem[]; attribution?: unknown };
   const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
   const nameParts = submittedName.split(" ").filter(Boolean);
   const firstName = String(body.firstName ?? nameParts.shift() ?? "").trim().slice(0, 80);
@@ -92,8 +92,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const pricedItems = priceMultiBuyItems(items);
-  const subtotalCents = pricedItems.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
+  const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const deliveryRate = await getDeliveryRate(wilayaCode);
   if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
   const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
@@ -120,7 +119,7 @@ export async function POST(request: Request) {
     const hub = submitted?.status === "resolved" ? submitted.hub : null;
     const hubId = submitted?.status === "unavailable" ? submittedHubId : hub?.id ?? null;
     const customer = await getCustomerSession();
-    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items: pricedItems, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents, checkoutToken: isValidCheckoutDraftToken(body.checkoutToken) ? body.checkoutToken : null });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;

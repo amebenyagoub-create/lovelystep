@@ -87,6 +87,26 @@ export type OrderItem = {
   unitCostCents?: number;
 };
 
+export type AbandonedCheckoutStatus = "pending" | "processing" | "sent" | "failed";
+
+export type AbandonedCheckout = {
+  id: number;
+  checkoutToken: string;
+  customerName: string;
+  phone: string;
+  locale: "fr" | "en" | "ar";
+  consentWhatsapp: boolean;
+  items: OrderItem[];
+  subtotalCents: number;
+  reminderDueAt: string;
+  reminderStatus: AbandonedCheckoutStatus;
+  reminderAttemptedAt: string | null;
+  reminderSentAt: string | null;
+  reminderError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Order = {
   id: number;
   orderNumber: string;

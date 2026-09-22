@@ -4,17 +4,16 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, DragEvent, FormEvent, useCallback, useEffect, useId, useMemo, useState } from "react";
-import type { DeliveryRate, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
+import type { AbandonedCheckout, DeliveryRate, LocalizedText, Order, OrderStatus, Product, ProductSize, ProductTestimonial, ProductVariant, StoreSettings } from "@/lib/types";
 import { frenchAgeLabel, recommendedHeightLabel } from "@/lib/product-size";
 import { filterAdminOrders, orderElapsedLabel, type AdminOrderStatusFilter } from "@/lib/admin-order-filter";
-import { priceMultiBuyItems } from "@/lib/multi-buy";
 import AnalyticsPanel from "./analytics-panel";
 import CampaignIntelligencePanel from "./campaign-intelligence-panel";
 import MetaPanel from "./meta-panel";
 import AgentTestPanel from "./agent-test-panel";
 
-type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null }; lastScheduledSync: string | null }; products: Product[]; orders: Order[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
-type Tab = "overview" | "analytics" | "campaigns" | "meta" | "agent" | "orders" | "products" | "store" | "delivery";
+type AdminData = { admin: { email: string }; csrfToken: string; stats: { products: number; published: number; newOrders: number; orders: number; deliveredRevenueCents: number; grossProfitCents: number; visitors30d: number; repeatBuyerRate: number; inventoryUnits: number }; meta: { pixelConfigured: boolean; insightsConfigured: boolean }; zrExpress: { apiKeyConfigured: boolean; tenantConfigured: boolean; ready: boolean }; sheetSync: { unknownStates: string[]; error: string | null; depth: { pending: number; failing: number; oldestPendingAt: string | null }; lastScheduledSync: string | null }; abandonedCartReminderConfigured: boolean; products: Product[]; orders: Order[]; abandonedCheckouts: AbandonedCheckout[]; storeSettings: StoreSettings; deliveryRates: DeliveryRate[] };
+type Tab = "overview" | "analytics" | "campaigns" | "meta" | "agent" | "orders" | "abandoned" | "products" | "store" | "delivery";
 const money = (cents: number) => new Intl.NumberFormat("fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
 const productStock = (product: Product) => (product.variants.length ? product.variants : product.sizes).reduce((total, item) => total + Math.max(0, Math.floor(Number(item.stock) || 0)), 0);
 const orderLabels: Record<OrderStatus, string> = { new: "Nouvelle", to_confirm: "À confirmer", confirmed: "Confirmée", preparing: "Préparation", shipped: "Expédiée", delivered: "Livrée", refused: "Refusée", returned: "Retournée", cancelled: "Annulée" };
@@ -79,6 +78,11 @@ export default function AdminDashboard() {
     const value = await jsonRequest("/api/admin/orders", { method: "DELETE", body: JSON.stringify({ id: order.id }) });
     if (value) setNotice(`Commande ${order.orderNumber} supprimée.`);
   }
+  async function removeAbandonedCheckout(checkout: AbandonedCheckout) {
+    if (!window.confirm(`Supprimer ce panier abandonné lié au ${checkout.phone} ?`)) return;
+    const value = await jsonRequest("/api/admin/abandoned-checkouts", { method: "DELETE", body: JSON.stringify({ id: checkout.id }) });
+    if (value) setNotice("Panier abandonné supprimé.");
+  }
   async function retrySheetExport(order: Order | null) {
     const value = await jsonRequest("/api/admin/orders/sheet-retry", { method: "POST", body: JSON.stringify(order ? { id: order.id } : {}) });
     if (!value) return;
@@ -114,8 +118,8 @@ export default function AdminDashboard() {
 
   if (!data) return <main className="admin-loading"><Image src="/brand/lovelystep-logo.png" alt="" width={130} height={130} /><p>Chargement du dashboard…</p>{error && <p className="form-error">{error}</p>}</main>;
 
-  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["agent", "Agent WhatsApp", "◉"], ["orders", "Commandes", "▤"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
-  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "agent" ? "Test de l’agent WhatsApp" : tab === "orders" ? "Commandes" : tab === "products" ? "Catalogue produits" : tab === "store" ? "Façade de la boutique" : "Livraison";
+  const navigation: [Tab, string, string][] = [["overview", "Vue d’ensemble", "⌂"], ["analytics", "Rentabilité", "◫"], ["campaigns", "Campaign Manager", "◆"], ["meta", "Meta", "◎"], ["agent", "Agent WhatsApp", "◉"], ["orders", "Commandes", "▤"], ["abandoned", "Paniers abandonnés", "◷"], ["products", "Produits", "◇"], ["store", "Façade boutique", "✦"], ["delivery", "Livraison", "▣"]];
+  const tabTitle = tab === "overview" ? "Bonjour 👋" : tab === "analytics" ? "Rentabilité" : tab === "campaigns" ? "Campaign Intelligence" : tab === "meta" ? "Connexion Meta" : tab === "agent" ? "Test de l’agent WhatsApp" : tab === "orders" ? "Commandes" : tab === "abandoned" ? "Paniers abandonnés" : tab === "products" ? "Catalogue produits" : tab === "store" ? "Façade de la boutique" : "Livraison";
   const primaryMobileTabs: Tab[] = ["overview", "orders", "products", "store"];
   const selectTab = (value: Tab) => {
     setTab(value);
@@ -125,7 +129,7 @@ export default function AdminDashboard() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
   return <div className="admin-shell">
-    <aside className="admin-sidebar"><Link href="/" className="admin-logo"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={128} height={128} /></Link><nav>{navigation.map(([value, label, icon]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => selectTab(value)}><span>{icon}</span>{label}{value === "orders" && data.stats.newOrders > 0 && <b>{data.stats.newOrders}</b>}</button>)}</nav><div className="sidebar-bottom"><Link href="/" target="_blank">Voir la boutique ↗</Link><button onClick={logout}>Se déconnecter</button><small>{data.admin.email}</small></div></aside>
+    <aside className="admin-sidebar"><Link href="/" className="admin-logo"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={128} height={128} /></Link><nav>{navigation.map(([value, label, icon]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => selectTab(value)}><span>{icon}</span>{label}{value === "orders" && data.stats.newOrders > 0 && <b>{data.stats.newOrders}</b>}{value === "abandoned" && data.abandonedCheckouts.length > 0 && <b>{data.abandonedCheckouts.length}</b>}</button>)}</nav><div className="sidebar-bottom"><Link href="/" target="_blank">Voir la boutique ↗</Link><button onClick={logout}>Se déconnecter</button><small>{data.admin.email}</small></div></aside>
     <header className="admin-mobile-topbar"><Link href="/" aria-label="Voir la boutique"><Image src="/brand/lovelystep-logo.png" alt="Lovely Step" width={58} height={58} /></Link><div><small>Administration</small><strong>{tabTitle}</strong></div><Link href="/" target="_blank" className="admin-mobile-store-link">Boutique ↗</Link></header>
     <main className="admin-main"><header className="admin-page-header"><div><span className="admin-kicker">Lovely Step · Administration</span><h1>{tabTitle}</h1></div><span className="secure-pill">● Session sécurisée</span></header>{error && <div className="admin-alert error">{error}<button onClick={() => setError("")}>×</button></div>}{notice && <div className="admin-alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
 
@@ -135,6 +139,7 @@ export default function AdminDashboard() {
       {tab === "meta" && <MetaPanel csrfToken={data.csrfToken} onNotice={setNotice} onError={setError} />}
       {tab === "agent" && <AgentTestPanel products={data.products} rates={data.deliveryRates} csrfToken={data.csrfToken} onError={setError} />}
       {tab === "orders" && <section className="admin-card"><div className="card-title"><div><h2>Toutes les commandes</h2><p>De la confirmation téléphonique jusqu’à la livraison.{ordersNeedingAttention(data.orders) > 0 ? ` · ${ordersNeedingAttention(data.orders)} commande(s) attendent une action de votre part.` : ""}</p></div><div className="orders-actions"><button type="button" className="admin-primary" disabled={busy} onClick={() => setEditingOrder("new")}>Nouvelle commande</button><button type="button" className="admin-secondary" disabled={busy} onClick={() => retrySheetExport(null)}>Synchroniser Google Sheets</button><a className="admin-primary" href="/api/admin/orders/export">Exporter Excel</a></div></div><SheetSyncBanner sync={data.sheetSync} /><div className="order-filters"><label><span>Rechercher</span><input type="search" value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="N°, client, téléphone, produit, wilaya…" /></label><label><span>Statut</span><select value={orderStatus} onChange={(event) => setOrderStatus(event.target.value as AdminOrderStatusFilter)}><option value="all">Tous les statuts</option>{Object.entries(orderLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><output aria-live="polite">{filteredOrders.length} sur {data.orders.length}</output>{(orderSearch || orderStatus !== "all") && <button type="button" onClick={() => { setOrderSearch(""); setOrderStatus("all"); }}>Effacer</button>}</div><OrdersTable orders={filteredOrders} emptyMessage="Aucune commande ne correspond à votre recherche." onEdit={setEditingOrder} onStatus={updateOrder} onDelete={removeOrder} onDispatch={sendOrderToZr} onRetrySheet={retrySheetExport} zrExpressReady={data.zrExpress.ready} busy={busy} /></section>}
+      {tab === "abandoned" && <AbandonedCheckoutsPanel checkouts={data.abandonedCheckouts} reminderConfigured={data.abandonedCartReminderConfigured} busy={busy} onDelete={removeAbandonedCheckout} />}
       {tab === "products" && <section className="admin-card">
         <div className="card-title">
           <div>
@@ -181,6 +186,25 @@ export default function AdminDashboard() {
     }} />}
     {editing && <ProductEditor product={editing === "new" ? null : editing} busy={busy} csrfToken={data.csrfToken} onError={setError} onClose={() => setEditing(null)} onSave={async (body) => { const value = await jsonRequest("/api/admin/products", { method: "POST", body: JSON.stringify(body) }); if (value) { setEditing(null); const automation = value.metaAutomation as { catalog?: boolean; pagePost?: boolean; instagramPost?: boolean } | undefined; setNotice(automation?.pagePost && automation?.instagramPost ? "Produit enregistré. Publications Facebook et Instagram programmées." : automation?.instagramPost ? "Produit enregistré. Publication Instagram programmée." : automation?.pagePost ? "Produit enregistré. Publication Facebook programmée." : automation?.catalog ? "Produit enregistré. Synchronisation du catalogue programmée." : "Produit enregistré."); } }} />}
   </div>;
+}
+
+function AbandonedCheckoutsPanel({ checkouts, reminderConfigured, busy, onDelete }: { checkouts: AbandonedCheckout[]; reminderConfigured: boolean; busy: boolean; onDelete: (checkout: AbandonedCheckout) => void }) {
+  const reminderLabel = (checkout: AbandonedCheckout) => !checkout.consentWhatsapp
+    ? "Rappel non autorisé"
+    : checkout.reminderStatus === "sent" ? "Rappel envoyé"
+      : checkout.reminderStatus === "failed" ? "Échec du rappel"
+        : checkout.reminderStatus === "processing" ? "Envoi en cours"
+          : `Prévu ${new Date(checkout.reminderDueAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`;
+  return <section className="admin-card abandoned-checkouts-card">
+    <div className="card-title"><div><h2>Paniers abandonnés</h2><p>Enregistrés après saisie d’un numéro algérien valide. Aucun stock n’est réservé.</p></div><span className={`status ${reminderConfigured ? "published" : "failed"}`}>{reminderConfigured ? "Rappel WhatsApp prêt" : "Modèle WhatsApp à configurer"}</span></div>
+    {!reminderConfigured && <div className="sheet-sync-banner error">Les paniers sont bien enregistrés, mais aucun rappel ne partira tant que le modèle WhatsApp approuvé et ses identifiants ne sont pas configurés.</div>}
+    {checkouts.length === 0 ? <div className="admin-empty">Aucun panier abandonné pour le moment.</div> : <div className="abandoned-checkout-list">{checkouts.map((checkout) => <article key={checkout.id} className="abandoned-checkout-row">
+      <div><small>Client</small><strong>{checkout.customerName || "Nom non renseigné"}</strong><a href={`tel:${checkout.phone}`}>{checkout.phone}</a></div>
+      <div className="abandoned-checkout-items"><small>Produit · taille · couleur</small>{checkout.items.map((item) => <span key={`${item.productId}-${item.size}-${item.color || ""}`}>{item.image ? <Image src={item.image} alt="" width={42} height={50} /> : null}<b>{item.quantity}× {item.name}</b><em>{item.size}{item.color ? ` · ${item.color}` : ""}</em></span>)}</div>
+      <div><small>Valeur du panier</small><strong>{money(checkout.subtotalCents)}</strong><time dateTime={checkout.updatedAt}>Abandonné le {new Date(checkout.updatedAt).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</time></div>
+      <div><small>WhatsApp</small><span className={`status ${checkout.reminderStatus === "sent" ? "published" : checkout.reminderStatus === "failed" ? "failed" : "draft"}`}>{reminderLabel(checkout)}</span>{checkout.reminderError && <em className="delivery-sync-error">{checkout.reminderError}</em>}<button type="button" className="danger-button" disabled={busy} onClick={() => onDelete(checkout)}>Supprimer</button></div>
+    </article>)}</div>}
+  </section>;
 }
 
 function ProductStockBySize({ product }: { product: Product }) {
@@ -453,8 +477,7 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
 
   const patch = (index: number, next: Partial<OrderEditLine>) => setLines((current) => current.map((line, position) => position === index ? { ...line, ...next } : line));
   const rate = deliveryRates.find((item) => item.wilayaCode === wilayaCode);
-  const pricedLines = priceMultiBuyItems(lines.map((line) => ({ ...line, unitPriceCents: productOf(line.productId)?.priceCents ?? 0 })));
-  const subtotal = pricedLines.reduce((total, line) => total + line.unitPriceCents * line.quantity, 0);
+  const subtotal = lines.reduce((total, line) => total + (productOf(line.productId)?.priceCents ?? 0) * line.quantity, 0);
   const shipping = rate ? (deliveryType === "office" ? rate.officeCents : rate.homeCents) : 0;
   const negotiatedCents = negotiated.trim() ? Math.round(Number(negotiated.trim().replace(",", ".")) * 100) : null;
   const effectiveTotal = negotiatedCents !== null && Number.isFinite(negotiatedCents) ? negotiatedCents : subtotal + shipping;
@@ -492,7 +515,7 @@ function OrderEditor({ order, products, deliveryRates, busy, onError, onClose, o
             <label>Couleur<select value={line.color} onChange={(event) => { const color = event.target.value; patch(index, { color, size: sizesOf(product, color)[0]?.label ?? "" }); }}>{colors.map((color) => <option key={color} value={color}>{color || "—"}</option>)}</select></label>
             <label>Taille<select value={line.size} onChange={(event) => patch(index, { size: event.target.value })} required><option value="">Choisir…</option>{sizes.map((size) => <option key={size.label} value={size.label}>{size.label} ({size.stock} en stock)</option>)}</select></label>
             <label>Qté<input type="number" min="1" max="10" value={line.quantity} onChange={(event) => patch(index, { quantity: Math.min(10, Math.max(1, Number(event.target.value) || 1)) })} /></label>
-            <div className="order-edit-line-end"><strong>{money((pricedLines[index]?.unitPriceCents ?? product?.priceCents ?? 0) * line.quantity)}</strong><button type="button" className="order-delete-button" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}>Retirer</button></div>
+            <div className="order-edit-line-end"><strong>{money((product?.priceCents ?? 0) * line.quantity)}</strong><button type="button" className="order-delete-button" onClick={() => setLines((current) => current.filter((_, position) => position !== index))}>Retirer</button></div>
           </div>;
         })}
       </div>

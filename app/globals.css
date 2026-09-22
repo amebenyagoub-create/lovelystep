@@ -620,3 +620,5 @@ body:has(.duo-picker-layer){overflow:hidden}
   .duo-size-options>button.selected{padding:7px 11px}
   .duo-size-options>button:disabled{opacity:.35;text-decoration:line-through}
 }
+/* Sauvegarde de panier : le consentement WhatsApp reste facultatif et distinct de la commande. */
+.abandoned-cart-consent{display:grid;gap:6px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--navy) 16%,transparent);border-radius:12px;background:#f8fbff}.abandoned-cart-consent label{display:flex;align-items:flex-start;gap:10px;font-size:13px;font-weight:800;line-height:1.4;color:var(--navy)}.abandoned-cart-consent input{width:18px;height:18px;flex:0 0 18px;margin-top:1px;accent-color:var(--coral)}.abandoned-cart-consent small{font-size:10px;line-height:1.45;color:#65758a}

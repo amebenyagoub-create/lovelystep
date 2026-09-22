@@ -98,6 +98,27 @@ CREATE TABLE IF NOT EXISTS orders (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Checkout drafts never reserve stock and never enter the order/confirmation pipeline.
+-- They exist only long enough to show abandoned carts and send one opted-in reminder.
+CREATE TABLE IF NOT EXISTS abandoned_checkouts (
+  id BIGSERIAL PRIMARY KEY,
+  checkout_token TEXT NOT NULL UNIQUE,
+  customer_name TEXT NOT NULL DEFAULT '',
+  phone TEXT NOT NULL,
+  locale TEXT NOT NULL DEFAULT 'fr' CHECK(locale IN ('fr','en','ar')),
+  consent_whatsapp BOOLEAN NOT NULL DEFAULT FALSE,
+  items_json JSONB NOT NULL,
+  subtotal_cents BIGINT NOT NULL CHECK(subtotal_cents >= 0),
+  ip_hash TEXT NOT NULL DEFAULT '',
+  reminder_due_at TIMESTAMPTZ NOT NULL,
+  reminder_status TEXT NOT NULL DEFAULT 'pending' CHECK(reminder_status IN ('pending','processing','sent','failed')),
+  reminder_attempted_at TIMESTAMPTZ,
+  reminder_sent_at TIMESTAMPTZ,
+  reminder_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS customer_sessions (
   id BIGSERIAL PRIMARY KEY,
   customer_id BIGINT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -433,6 +454,9 @@ CREATE TABLE IF NOT EXISTS fx_rates (
 
 CREATE INDEX IF NOT EXISTS idx_products_status ON products(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_due ON abandoned_checkouts(reminder_due_at) WHERE consent_whatsapp=TRUE AND reminder_status='pending';
+CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_phone ON abandoned_checkouts(phone, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_ip ON abandoned_checkouts(ip_hash, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_sheet_outbox ON orders(created_at) WHERE sheet_synced_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON admin_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON login_attempts(email, ip, created_at DESC);

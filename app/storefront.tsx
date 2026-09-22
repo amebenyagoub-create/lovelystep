@@ -5,10 +5,10 @@ import Link from "next/link";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import LanguageSwitcher from "./language-switcher";
 import { parseStoredCart, type CartItem } from "@/lib/cart";
+import { CHECKOUT_DRAFT_KEY, isLikelyAlgerianMobile, isValidCheckoutDraftToken } from "@/lib/checkout-draft";
 import { trackCommerce } from "@/lib/commerce-tracking";
 import { contentId } from "@/lib/meta/events";
 import { loadAttribution } from "@/lib/meta/attribution";
-import { MULTI_BUY_PRICE_CENTS, priceMultiBuyItems } from "@/lib/multi-buy";
 import { localizedAgeLabel } from "@/lib/product-size";
 import { isProductOutOfStock } from "@/lib/product-stock";
 import type { AlgeriaWilaya, Customer, DeliveryRate, DeliveryType, PublicProduct, StoreSettings } from "@/lib/types";
@@ -22,6 +22,12 @@ const deliveryCopy = {
   ar: { basedOnWilaya: "حسب الولاية", hub: "مكتب ZR Express", hubChoose: "اختر مكتبا", hubLoading: "جارٍ تحميل المكاتب…", hubEmpty: "لا يوجد مكتب مدرج لهذه الولاية. سنؤكد معك عبر الهاتف." },
 } as const;
 
+const abandonedCartCopy = {
+  fr: { consent: "J’accepte de recevoir un seul rappel WhatsApp si je ne termine pas ma commande.", privacy: "Votre panier est sauvegardé provisoirement dès que le numéro est valide. Aucun rappel ne sera envoyé sans votre accord." },
+  en: { consent: "I agree to receive one WhatsApp reminder if I do not finish my order.", privacy: "Your cart is saved temporarily once the phone number is valid. No reminder is sent without your permission." },
+  ar: { consent: "أوافق على تلقي تذكير واحد عبر واتساب إذا لم أكمل طلبي.", privacy: "تُحفظ سلتكم مؤقتاً بعد إدخال رقم صحيح. لن نرسل أي تذكير دون موافقتكم." },
+} as const;
+
 function Icon({ name }: { name: "bag" | "menu" | "close" | "truck" | "cash" | "heart" | "shield" | "arrow" | "user" }) {
   const paths = { bag: "M6 8h12l-1 12H7L6 8Zm3 0V6a3 3 0 0 1 6 0v2", menu: "M4 7h16M4 12h16M4 17h16", close: "M6 6l12 12M18 6 6 18", truck: "M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6ZM7 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", cash: "M3 6h18v12H3V6Zm9 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9V8h2M18 15v1h-2", heart: "M12 20s-8-4.8-8-10a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.2-8 10-8 10Z", shield: "M12 3 5 6v5c0 4.8 2.8 8.2 7 10 4.2-1.8 7-5.2 7-10V6l-7-3Zm-3 9 2 2 4-5", arrow: "m9 18 6-6-6-6", user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 8a7 7 0 0 0-14 0" };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
@@ -32,12 +38,11 @@ const emptyCheckout: CheckoutState = { fullName: "", phone: "", wilayaCode: "", 
 type PickupHub = { id: string; name: string; district: string };
 
 function trackCheckout(items: CartItem[]) {
-  const pricedItems = priceMultiBuyItems(items);
   trackCommerce("InitiateCheckout", {
-    content_ids: pricedItems.map((item) => contentId(item.slug)),
-    contents: pricedItems.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+    content_ids: items.map((item) => contentId(item.slug)),
+    contents: items.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
     content_type: "product",
-    value: pricedItems.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) / 100,
+    value: items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0) / 100,
     currency: "DZD",
     num_items: items.reduce((sum, item) => sum + item.quantity, 0),
   });
@@ -55,9 +60,12 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const [orderSuccess, setOrderSuccess] = useState(false);
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [checkout, setCheckout] = useState<CheckoutState>(emptyCheckout);
+  const [checkoutStarted, setCheckoutStarted] = useState(false);
+  const [whatsappReminderConsent, setWhatsappReminderConsent] = useState(false);
   const [hubs, setHubs] = useState<PickupHub[] | null>(null);
   const [hubsDown, setHubsDown] = useState(false);
   const cartLoaded = useRef(false);
+  const checkoutDraftToken = useRef<string | null>(null);
 
   const money = (cents: number) => new Intl.NumberFormat(locale === "ar" ? "ar-DZ" : locale === "en" ? "en-DZ" : "fr-DZ", { style: "currency", currency: "DZD", maximumFractionDigits: 0 }).format(cents / 100);
   const text = (value: StoreSettings["announcement"]) => value[locale] || value.fr;
@@ -69,7 +77,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       const action = new URLSearchParams(window.location.search);
       setCart(storedCart);
       cartLoaded.current = true;
-      if (action.get("checkout") === "1" && storedCart.length) { setCheckoutOpen(true); trackCheckout(storedCart); }
+      if (action.get("checkout") === "1" && storedCart.length) { setCheckoutOpen(true); setCheckoutStarted(true); trackCheckout(storedCart); }
       else if (action.get("bag") === "1") setCartOpen(true);
     }, 0);
     void fetch("/api/account/me", { cache: "no-store" }).then((response) => response.json()).then((value) => {
@@ -81,6 +89,39 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => { if (cartLoaded.current) localStorage.setItem(CART_KEY, JSON.stringify(cart)); }, [cart]);
+  useEffect(() => {
+    if (!cartLoaded.current || !checkoutStarted) return;
+    const storedToken = localStorage.getItem(CHECKOUT_DRAFT_KEY);
+    if (!checkoutDraftToken.current && isValidCheckoutDraftToken(storedToken)) checkoutDraftToken.current = storedToken;
+    if (!cart.length) {
+      const token = checkoutDraftToken.current;
+      if (token) void fetch("/api/checkout-drafts", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ checkoutToken: token }) }).catch(() => undefined);
+      checkoutDraftToken.current = null;
+      localStorage.removeItem(CHECKOUT_DRAFT_KEY);
+      return;
+    }
+    if (!isLikelyAlgerianMobile(checkout.phone)) return;
+    if (!checkoutDraftToken.current) {
+      checkoutDraftToken.current = crypto.randomUUID();
+      localStorage.setItem(CHECKOUT_DRAFT_KEY, checkoutDraftToken.current);
+    }
+    const token = checkoutDraftToken.current;
+    const timer = window.setTimeout(() => {
+      void fetch("/api/checkout-drafts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          checkoutToken: token,
+          customerName: checkout.fullName,
+          phone: checkout.phone,
+          locale,
+          consentWhatsapp: whatsappReminderConsent,
+          items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })),
+        }),
+      }).catch(() => undefined);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [cart, checkout.fullName, checkout.phone, checkoutStarted, locale, whatsappReminderConsent]);
   // Les bureaux ne sont demandes qu'au moment ou le client choisit « au bureau », et
   // reinterroges a chaque changement de wilaya : un bureau d'une autre wilaya ne doit jamais
   // rester selectionne. Le drapeau cancelled evite qu'une reponse lente d'une wilaya
@@ -106,11 +147,7 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   useEffect(() => { void fetch("/api/analytics/visit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: "/" }) }).catch(() => undefined); }, []);
 
   const count = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const pricedCart = priceMultiBuyItems(cart);
-  const regularSubtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const subtotal = pricedCart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
-  const multiBuySavings = regularSubtotal - subtotal;
-  const multiBuyLabel = locale === "ar" ? `عرض موديلين · ${money(MULTI_BUY_PRICE_CENTS)}` : locale === "en" ? `2-style offer · ${money(MULTI_BUY_PRICE_CENTS)}` : `Offre 2 modèles · ${money(MULTI_BUY_PRICE_CENTS)}`;
+  const subtotal = cart.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   const categories = [...new Set(products.map((product) => product.category))];
   // Un tarif a zero veut dire « pas encore fixe », pas « livraison gratuite ». Ces wilayas
   // sortent donc de la liste : les proposer laissait passer des commandes ou la livraison
@@ -169,13 +206,14 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
 
   function startCheckout() {
     if (!cart.length) return;
+    setCheckoutStarted(true);
     trackCheckout(cart);
   }
 
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSubmitting(true); setMessage(""); setOrderSuccess(false);
     try {
-      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, locale, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
+      const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, checkoutToken: checkoutDraftToken.current, locale, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.error || t("accountError")); return; }
       // The server already sent this event through both conversion APIs. Reusing its id lets
@@ -183,13 +221,15 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       // which belongs to the carrier and matches the item subtotal sent by the server.
       trackCommerce("Purchase", {
         content_ids: cart.map((item) => contentId(item.slug)),
-        contents: pricedCart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
+        contents: cart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
         content_type: "product",
         value: subtotal / 100,
         currency: "DZD",
         num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
         order_id: String(data.orderNumber ?? ""),
       }, data.metaEventId);
+      checkoutDraftToken.current = null;
+      localStorage.removeItem(CHECKOUT_DRAFT_KEY);
       setCart([]); setOrderSuccess(true); setMessage(
         locale === "ar" ? `شكراً! تم تسجيل طلبكم ${data.orderNumber}. سنتواصل معكم قريباً لتأكيده.`
           : locale === "en" ? `Thank you! Order ${data.orderNumber} is registered. We will contact you shortly to confirm it.`
@@ -229,15 +269,15 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       <aside className="cart-drawer" aria-label={t("cart")}>
         <div className="drawer-head"><div><span>{t("yourCart")}</span><strong>{count} {count > 1 ? t("items") : t("item")}</strong></div><button className="icon-button" onClick={() => setCartOpen(false)} aria-label="Close"><Icon name="close" /></button></div>
         {cart.length === 0 ? <div className="empty-cart"><Icon name="bag" /><h3>{t("emptyCart")}</h3><p>{t("emptyCartText")}</p><button className="primary-button" onClick={() => setCartOpen(false)}>{t("seeCollection")}</button></div> : <>
-          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(pricedCart[index].unitPriceCents * item.quantity)}</strong></div>)}</div>
-          <div className="cart-summary">{multiBuySavings > 0 && <div className="multi-buy-saving"><span>{multiBuyLabel}</span><strong>-{money(multiBuySavings)}</strong></div>}<div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{deliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
+          <div className="cart-lines">{cart.map((item, index) => <div className="cart-line" key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={86} height={104} /><div><Link href={`/produits/${item.slug}`}>{item.name}</Link><span>{t("size")} : {item.sizeLabel || item.size}{item.color ? ` · ${t("color")} : ${item.color}` : ""}</span><div className="quantity"><button onClick={() => updateQuantity(index, -1)}>−</button><b>{item.quantity}</b><button onClick={() => updateQuantity(index, 1)}>+</button></div></div><strong>{money(item.unitPriceCents * item.quantity)}</strong></div>)}</div>
+          <div className="cart-summary"><div><span>{t("subtotal")}</span><strong>{money(subtotal)}</strong></div><div><span>{t("delivery")}</span><strong>{deliveryText.basedOnWilaya}</strong></div><button className="primary-button full" onClick={() => { setCheckoutOpen(true); setMessage(""); setOrderSuccess(false); startCheckout(); }}>{t("checkout")} · {money(subtotal)}</button><small>{t("cash")}</small></div>
         </>}
       </aside>
     </>}
     {checkoutOpen && <div className="modal-backdrop"><section className="checkout-modal">
       <button className="icon-button modal-close" aria-label="Close" onClick={() => setCheckoutOpen(false)}><Icon name="close" /></button>
       <span className="eyebrow">{t("cod")}</span><h2>{t("finish")}</h2>
-      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item, index) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(pricedCart[index].unitPriceCents * item.quantity)}</b></div>)}</div>}
+      {!orderSuccess && <div className="checkout-product-summary">{cart.slice(0, 3).map((item) => <div key={`${item.productId}-${item.size}-${item.color || ""}`}><Image src={item.image} alt="" width={52} height={62} /><span><strong>{item.name}</strong><small>{item.sizeLabel || item.size}{item.color ? ` · ${item.color}` : ""} · ×{item.quantity}</small></span><b>{money(item.unitPriceCents * item.quantity)}</b></div>)}</div>}
       {orderSuccess ? <div className="success-message"><span>✓</span><p>{message}</p><button className="primary-button" onClick={() => { setCheckoutOpen(false); setCartOpen(false); }}>{t("finishButton")}</button></div> : <form onSubmit={placeOrder}>
         <label>{t("fullName")}<input value={checkout.fullName} onChange={(event) => setCheckout({ ...checkout, fullName: event.target.value })} autoComplete="name" required minLength={3} /></label>
         <label>{t("phone")}<input value={checkout.phone} onChange={(event) => setCheckout({ ...checkout, phone: event.target.value })} type="tel" inputMode="tel" autoComplete="tel" required placeholder="0550 00 00 00" /></label>
@@ -250,7 +290,8 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
               ? <p className="hub-note">{deliveryText.hubEmpty}</p>
               : <label>{deliveryText.hub}<select value={checkout.deliveryHubId} onChange={(event) => setCheckout({ ...checkout, deliveryHubId: event.target.value })} required><option value="">{deliveryText.hubChoose}</option>{hubs.map((hub) => <option key={hub.id} value={hub.id}>{hub.district ? `${hub.district} · ${hub.name}` : hub.name}</option>)}</select></label>
         )}
-        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown">{multiBuySavings > 0 && <span className="multi-buy-saving">{multiBuyLabel}<b>-{money(multiBuySavings)}</b></span>}<span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{selectedRate ? t("orderHelp") : t("chooseWilayaFirst")}</small>
+        <div className="abandoned-cart-consent"><label><input type="checkbox" checked={whatsappReminderConsent} onChange={(event) => setWhatsappReminderConsent(event.target.checked)} /><span>{abandonedCartCopy[locale].consent}</span></label><small>{abandonedCartCopy[locale].privacy}</small></div>
+        {message && <p className="form-error">{message}</p>}<div className="checkout-breakdown"><span>{t("subtotal")}<b>{money(subtotal)}</b></span><span>{t("shippingPrice")}<b>{selectedRate ? money(shipping) : "—"}</b></span></div><div className="checkout-total"><span>{t("total")}</span><strong>{money(total)}</strong></div><button className="primary-button full" disabled={submitting || !selectedRate}>{submitting ? t("sending") : t("confirm")}</button><small>{selectedRate ? t("orderHelp") : t("chooseWilayaFirst")}</small>
       </form>}
     </section></div>}
     {accountOpen && <AccountModal customer={customer} wilayas={wilayas} locale={locale} t={t} onClose={() => setAccountOpen(false)} onCustomer={(value) => { setCustomer(value); setCheckout((state) => ({ ...state, fullName: `${value.firstName} ${value.lastName}`.trim(), phone: value.phone, wilayaCode: value.wilayaCode, commune: value.commune })); }} onLogout={() => { setCustomer(null); setCheckout(emptyCheckout); }} />}
