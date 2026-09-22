@@ -1,4 +1,5 @@
 import { marketingAllowed, readConsentCookie } from "./meta/consent";
+import { loadAttribution } from "./meta/attribution";
 import type { MetaCustomData, MetaStandardEvent } from "./meta/events";
 import { tiktokProperties } from "./tiktok/events";
 
@@ -36,10 +37,11 @@ export function trackTikTok(eventName: MetaStandardEvent, parameters: MetaCustom
   }
   try { window.ttq.track(eventName, tiktokProperties(parameters), { event_id: eventId }); } catch { /* tracking never breaks shopping */ }
   if (SERVER_EVENTS.has(eventName)) {
+    const ttclid = loadAttribution()?.last.ttclid;
     void fetch("/api/tiktok/events", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventName, eventId, customData: parameters }),
+      body: JSON.stringify({ eventName, eventId, customData: parameters, ttclid }),
       keepalive: true,
     }).catch(() => undefined);
   }

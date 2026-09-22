@@ -123,8 +123,9 @@ export async function POST(request: Request) {
     const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items: pricedItems, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
     const metaContext = metaRequestContext(request);
-    const tiktokContext = tiktokRequestContext(request);
     const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
+    const requestTikTokContext = tiktokRequestContext(request);
+    const tiktokContext = attribution?.last.ttclid ? { ...requestTikTokContext, ttclid: attribution.last.ttclid } : requestTikTokContext;
     after(() => persistOrderAttribution(order.id, attribution, metaContext));
     after(() => Promise.allSettled([sendPurchaseEvent(order, metaContext), sendTikTokPurchase(order, metaContext, tiktokContext)]).then(() => undefined));
     // Stock just changed: the sold-out badge and the size picker must not lag.

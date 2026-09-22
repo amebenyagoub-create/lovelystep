@@ -37,6 +37,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as Record<string, unknown> | null;
   const eventName = String(body?.eventName ?? "") as MetaStandardEvent;
   const eventId = String(body?.eventId ?? "");
+  const ttclid = validText(body?.ttclid, 300) ? body.ttclid.trim() : undefined;
   const customData = parseCustomData(body?.customData, eventName);
   if (!ALLOWED_EVENTS.has(eventName) || !/^[a-zA-Z0-9_-]{8,128}$/.test(eventId) || !customData) return NextResponse.json({ error: "Evenement invalide." }, { status: 400 });
 
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
     eventId,
     url: context.url,
     referrer: context.referrer,
-    user: { phone: customer?.phone, externalId: customer ? String(customer.id) : undefined, ttp: context.ttp, ttclid: context.ttclid, ip: context.ip, userAgent: context.userAgent },
+    user: { phone: customer?.phone, externalId: customer ? String(customer.id) : undefined, ttp: context.ttp, ttclid: ttclid ?? context.ttclid, ip: context.ip, userAgent: context.userAgent },
     customData,
   }, context.consentGranted);
   return NextResponse.json({ ok: result.ok, skipped: result.skipped ?? null }, { status: result.ok || result.skipped ? 200 : 502 });

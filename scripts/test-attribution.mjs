@@ -16,6 +16,16 @@ check("a Meta click is captured from fbclid", () => {
   assert.equal(touch.landingPage, "/produits/a");
 });
 
+check("a TikTok click id survives internal navigation through attribution state", () => {
+  const first = readTouch("https://shop.dz/produits/a?ttclid=tiktok-click-123", "https://tiktok.com/");
+  assert.ok(first);
+  assert.equal(first.ttclid, "tiktok-click-123");
+  const state = mergeAttribution(null, first);
+  const internal = readTouch("https://shop.dz/?checkout=1", "https://shop.dz/produits/a");
+  assert.equal(internal, null);
+  assert.equal(state.last.ttclid, "tiktok-click-123");
+});
+
 check("UTM parameters are captured", () => {
   const touch = readTouch("https://shop.dz/?utm_source=facebook&utm_medium=cpc&utm_campaign=ete&utm_content=ad7", "");
   assert.equal(touch.utmSource, "facebook");

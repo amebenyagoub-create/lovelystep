@@ -178,13 +178,14 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
       const response = await fetch("/api/orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...checkout, locale, items: cart.map(({ productId, size, color, quantity }) => ({ productId, size, color, quantity })), attribution: loadAttribution() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setMessage(data.error || t("accountError")); return; }
-      // data.metaEventId comes from the server, which already sent the same event via CAPI.
-      // Reusing it verbatim is what lets Meta collapse the two into one conversion.
+      // The server already sent this event through both conversion APIs. Reusing its id lets
+      // each platform collapse browser + server into one purchase. Value excludes delivery,
+      // which belongs to the carrier and matches the item subtotal sent by the server.
       trackCommerce("Purchase", {
         content_ids: cart.map((item) => contentId(item.slug)),
         contents: pricedCart.map((item) => ({ id: contentId(item.slug), quantity: item.quantity, item_price: item.unitPriceCents / 100 })),
         content_type: "product",
-        value: Number(data.totalCents || total) / 100,
+        value: subtotal / 100,
         currency: "DZD",
         num_items: cart.reduce((sum, item) => sum + item.quantity, 0),
         order_id: String(data.orderNumber ?? ""),

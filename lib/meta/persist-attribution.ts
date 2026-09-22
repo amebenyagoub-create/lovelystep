@@ -33,6 +33,7 @@ function parseTouch(value: unknown): AttributionTouch | null {
   return {
     at: timestamp(raw.at) ?? new Date().toISOString(),
     fbclid: text(raw.fbclid) ?? undefined,
+    ttclid: text(raw.ttclid, 300) ?? undefined,
     utmSource: text(raw.utmSource, 100) ?? undefined,
     utmMedium: text(raw.utmMedium, 100) ?? undefined,
     utmCampaign: text(raw.utmCampaign, 150) ?? undefined,
