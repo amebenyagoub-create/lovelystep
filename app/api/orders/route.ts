@@ -14,6 +14,7 @@ import { resolveSubmittedHub } from "@/lib/pickup-hubs";
 import { metaRequestContext } from "@/lib/meta/request";
 import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
 import { tiktokRequestContext } from "@/lib/tiktok/request";
+import { processAdminOrderPushNotifications } from "@/lib/admin-push";
 import { log } from "@/lib/log";
 import type { DeliveryType, OrderItem } from "@/lib/types";
 
@@ -130,6 +131,7 @@ export async function POST(request: Request) {
     // Stock just changed: the sold-out badge and the size picker must not lag.
     revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));
+    after(() => processAdminOrderPushNotifications(10).then(() => undefined));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
     return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });
   } catch (error) {

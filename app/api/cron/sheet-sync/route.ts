@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { lastScheduledSheetSyncAt, markScheduledSheetSync, sheetOutboxDepth } from "@/lib/db-postgres";
 import { processAbandonedCheckoutReminders } from "@/lib/abandoned-cart-reminders";
+import { processAdminOrderPushNotifications } from "@/lib/admin-push";
 import { drainOrderSheetOutbox, syncOrderStatesFromGoogleSheet } from "@/lib/google-sheets";
 import { log, errorMessage } from "@/lib/log";
 
@@ -39,6 +40,14 @@ export async function POST(request: Request) {
 
   const outcome: Record<string, unknown> = {};
   let ok = true;
+
+  try {
+    // Retente les alertes ratées sans dépendre de l'ouverture du tableau de bord.
+    outcome.adminPush = await processAdminOrderPushNotifications(25);
+  } catch (error) {
+    outcome.adminPushError = errorMessage(error, "Échec des notifications administrateur");
+    log.actionRequired("admin_order_push_failed", { message: outcome.adminPushError });
+  }
 
   try {
     // Cart recovery belongs to the same already-scheduled worker. One cron is

@@ -63,6 +63,11 @@ async function initialize(): Promise<void> {
         AND EXISTS (SELECT 1 FROM orders o WHERE o.id = entity_id::bigint)
       ORDER BY created_at ASC`);
   });
+  // The feature must start with the next real order, not notify the admin about every
+  // historical order on its first deployment.
+  await runMigrationOnce("2026-09-admin-push-backfill", async (client) => {
+    await client.query("UPDATE orders SET admin_push_sent_at=created_at WHERE admin_push_sent_at IS NULL");
+  });
 }
 
 export function ensureDatabase(): Promise<void> {
@@ -433,6 +438,58 @@ async function changeStock(client: PoolClient, items: OrderItem[], direction: -1
 }
 type CreateOrderInput={customerId:number|null;firstName:string;lastName:string;customerName:string;phone:string;city:string;wilayaCode:string;wilayaName:string;commune:string;address:string;deliveryType:DeliveryType;deliveryHubId?:string|null;deliveryHubName?:string|null;notes:string;items:OrderItem[];subtotalCents:number;shippingCents:number;totalCents:number;checkoutToken?:string|null};
 export async function createOrder(input:CreateOrderInput):Promise<Order>{await ensureDatabase();const client=await pool.connect();try{await client.query("BEGIN");await changeStock(client,input.items,-1);const number=`LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;const result=await client.query(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'new',$16::jsonb,$17,$18,$19,TRUE) RETURNING *`,[number,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId??null,input.deliveryHubName??null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents]);await client.query("DELETE FROM abandoned_checkouts WHERE phone=$1 OR ($2::text IS NOT NULL AND checkout_token=$2)",[input.phone,input.checkoutToken??null]);await client.query("COMMIT");return mapOrder(result.rows[0]);}catch(error){await client.query("ROLLBACK");throw error;}finally{client.release();}}
+
+export type AdminPushSubscription = {
+  endpoint: string;
+  adminId: number;
+  p256dh: string;
+  auth: string;
+};
+
+export async function saveAdminPushSubscription(adminId: number, subscription: Omit<AdminPushSubscription, "adminId">, userAgent: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query(`INSERT INTO admin_push_subscriptions (endpoint,admin_id,p256dh,auth,user_agent)
+    VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT(endpoint) DO UPDATE SET admin_id=EXCLUDED.admin_id,p256dh=EXCLUDED.p256dh,
+      auth=EXCLUDED.auth,user_agent=EXCLUDED.user_agent,updated_at=NOW()`,
+    [subscription.endpoint, adminId, subscription.p256dh, subscription.auth, userAgent.slice(0, 500)]);
+}
+
+export async function listAdminPushSubscriptions(): Promise<AdminPushSubscription[]> {
+  return (await rows("SELECT endpoint,admin_id,p256dh,auth FROM admin_push_subscriptions ORDER BY updated_at DESC")).map((row) => ({
+    endpoint: String(row.endpoint), adminId: Number(row.admin_id), p256dh: String(row.p256dh), auth: String(row.auth),
+  }));
+}
+
+export async function deleteAdminPushSubscription(endpoint: string): Promise<void> {
+  await ensureDatabase();
+  await pool.query("DELETE FROM admin_push_subscriptions WHERE endpoint=$1", [endpoint]);
+}
+
+export async function countAdminPushSubscriptions(): Promise<number> {
+  const result = await rows("SELECT count(*)::int count FROM admin_push_subscriptions");
+  return Number(result[0]?.count ?? 0);
+}
+
+/** Claim work atomically so simultaneous order requests and the cron never send twice. */
+export async function claimOrdersForAdminPush(limit = 10): Promise<Order[]> {
+  const result = await rows(`WITH due AS (
+      SELECT id FROM orders
+      WHERE admin_push_sent_at IS NULL AND admin_push_attempts < 8
+        AND (admin_push_last_attempt_at IS NULL OR admin_push_last_attempt_at < NOW()-INTERVAL '2 minutes')
+      ORDER BY created_at ASC LIMIT $1 FOR UPDATE SKIP LOCKED
+    )
+    UPDATE orders o SET admin_push_attempts=o.admin_push_attempts+1,
+      admin_push_last_attempt_at=NOW(),admin_push_last_error=NULL
+    FROM due WHERE o.id=due.id RETURNING o.*`, [Math.max(1, Math.min(50, Math.floor(limit)))]);
+  return result.map(mapOrder);
+}
+
+export async function finishAdminOrderPush(orderId: number, sent: boolean, error = ""): Promise<void> {
+  await ensureDatabase();
+  await pool.query(`UPDATE orders SET admin_push_sent_at=CASE WHEN $2 THEN NOW() ELSE admin_push_sent_at END,
+    admin_push_last_error=CASE WHEN $2 THEN NULL ELSE $3 END WHERE id=$1`, [orderId, sent, error.slice(0, 1000)]);
+}
 export async function updateDeliverySync(id:number,patch:{status:Order["deliverySyncStatus"];externalId?:string|null;error?:string|null}):Promise<void>{await ensureDatabase();await pool.query("UPDATE orders SET delivery_sync_status=$1,delivery_external_id=$2,delivery_sync_error=$3,updated_at=NOW() WHERE id=$4",[patch.status,patch.externalId??null,patch.error??null,id]);}
 /**
  * Recopie dans la boutique le colis cree par l'agent de confirmation.

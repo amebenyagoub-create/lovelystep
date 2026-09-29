@@ -352,3 +352,15 @@
 .abandoned-checkouts-card{display:grid;gap:18px}.abandoned-checkout-list{display:grid;gap:12px}.abandoned-checkout-row{display:grid;grid-template-columns:minmax(150px,.8fr) minmax(260px,1.6fr) minmax(170px,.8fr) minmax(190px,.9fr);gap:18px;align-items:start;padding:16px;border:1px solid var(--line);border-radius:14px;background:#fff}.abandoned-checkout-row>div{display:grid;gap:6px;min-width:0}.abandoned-checkout-row small{font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.abandoned-checkout-row a{font-size:12px;color:var(--navy);text-decoration:underline}.abandoned-checkout-row time{font-size:10px;color:var(--muted)}.abandoned-checkout-row>.abandoned-checkout-items{gap:8px}.abandoned-checkout-items>span{display:grid;grid-template-columns:42px minmax(0,1fr);grid-template-rows:auto auto;column-gap:9px;align-items:center}.abandoned-checkout-items img{grid-row:1/3;width:42px;height:50px;object-fit:cover;border-radius:7px;background:var(--cream)}.abandoned-checkout-items b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}.abandoned-checkout-items em{font-size:10px;color:var(--muted);font-style:normal}.abandoned-checkout-row .danger-button{justify-self:start;margin-top:3px}.admin-empty{padding:34px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
 @media(max-width:900px){.abandoned-checkout-row{grid-template-columns:1fr 1fr}.abandoned-checkout-items{grid-column:1/-1}}
 @media(max-width:560px){.abandoned-checkout-row{grid-template-columns:1fr}.abandoned-checkout-items{grid-column:auto}.abandoned-checkout-row>div{padding-bottom:10px;border-bottom:1px solid var(--line)}.abandoned-checkout-row>div:last-child{padding-bottom:0;border-bottom:0}}
+
+/* Installable admin app and native order notifications. Kept out of the service-worker cache:
+   this control only registers the phone and never caches private admin data. */
+.admin-pwa-tools{display:flex;justify-content:flex-end;align-items:center;gap:9px;flex-wrap:wrap;margin:-20px 0 20px}
+.admin-pwa-tools button{border:1px solid #cad5df;background:#fff;color:var(--navy);border-radius:999px;padding:9px 13px;font-size:11px;font-weight:850;cursor:pointer}
+.admin-pwa-tools button:hover:not(:disabled){border-color:var(--navy);background:#f8fbfd}
+.admin-pwa-tools button:disabled{opacity:.55;cursor:wait}
+.admin-pwa-tools span{border-radius:999px;padding:8px 11px;font-size:10px;font-weight:850}
+.admin-push-on{background:#dff5e9;color:#24724a}
+.admin-push-off{background:#fff1cf;color:#845d00}
+.admin-pwa-tools small{flex-basis:100%;text-align:right;color:var(--muted);font-size:10px}
+@media(max-width:800px){.admin-pwa-tools{justify-content:flex-start;margin:0 0 16px;padding:10px 12px;border:1px solid #e4e8ed;border-radius:14px;background:#fff}.admin-pwa-tools small{text-align:left}}

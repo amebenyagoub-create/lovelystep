@@ -418,6 +418,23 @@ ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_synced_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS sheet_last_error TEXT;
 
+-- Native Web Push notifications for the private administration PWA. A subscription is
+-- registered only from an authenticated admin session; no push secret reaches the browser.
+CREATE TABLE IF NOT EXISTS admin_push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  admin_id BIGINT NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_push_sent_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_push_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_push_last_attempt_at TIMESTAMPTZ;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS admin_push_last_error TEXT;
+
 -- Orders that predate the outbox were exported inline and must not flood the
 -- first cron run. Anything older than a day is treated as already handled.
 UPDATE orders SET sheet_synced_at = created_at
@@ -458,6 +475,8 @@ CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_due ON abandoned_checkouts(re
 CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_phone ON abandoned_checkouts(phone, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_abandoned_checkouts_ip ON abandoned_checkouts(ip_hash, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_sheet_outbox ON orders(created_at) WHERE sheet_synced_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_orders_admin_push ON orders(created_at) WHERE admin_push_sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_admin_push_subscriptions_admin ON admin_push_subscriptions(admin_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON admin_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON login_attempts(email, ip, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_order_attempts ON order_attempts(ip, created_at DESC);

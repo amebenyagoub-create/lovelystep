@@ -27,6 +27,9 @@
     "meta:bootstrap": "node --env-file=.env.local --conditions react-server --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/meta-bootstrap.mjs",
     "cron:meta-sync": "node scripts/cron-meta-sync.mjs",
     "cron:sheet-sync": "node scripts/cron-sheet-sync.mjs",
+    "push:generate-keys": "node scripts/generate-vapid.mjs",
+    "push:configure-railway": "node scripts/generate-vapid.mjs --railway",
+    "test:admin-push": "node scripts/test-admin-push.mjs",
     "traffic:audit": "node --env-file=.env.local scripts/traffic-audit.mjs",
     "orders:attribution": "node --env-file=.env.local scripts/order-attribution.mjs",
     "orders:fix-attribution": "node --env-file=.env.local scripts/fix-order-attribution.mjs",
@@ -57,7 +60,8 @@
     "playwright": "1.62.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "sharp": "0.35.3"
+    "sharp": "0.35.3",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
@@ -67,6 +71,7 @@
     "@types/pg": "^8.21.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@types/web-push": "^3.6.4",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
