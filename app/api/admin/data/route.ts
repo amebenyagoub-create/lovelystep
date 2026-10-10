@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminApi } from "@/lib/auth";
-import { dashboardStats, getDeliveryIntegration, getStoreSettings, lastScheduledSheetSyncAt, listAbandonedCheckouts, listDeliveryRates, listExpenses, listOrders, listProducts, sheetOutboxDepth } from "@/lib/db-postgres";
+import { dashboardStats, getDeliveryIntegration, getStoreSettings, lastScheduledSheetSyncAt, listAbandonedCheckouts, listAllProducts, listDeliveryRates, listExpenses, listOrders, sheetOutboxDepth } from "@/lib/db-postgres";
 import { abandonedCartReminderConfigured } from "@/lib/abandoned-cart-reminders";
 import { metaStatus } from "@/lib/meta/config";
 import { getZrExpressStatus } from "@/lib/zrexpress";
@@ -14,7 +14,7 @@ export async function GET() {
   // request out of this route makes the dashboard independent from Google latency.
   const [stats, products, orders, abandonedCheckouts, storeSettings, deliveryRates, deliveryIntegration, expenses, depth, lastScheduledSync] = await Promise.all([
     dashboardStats(),
-    listProducts(true),
+    listAllProducts(),
     listOrders(),
     listAbandonedCheckouts(),
     getStoreSettings(),

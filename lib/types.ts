@@ -1,4 +1,5 @@
 export type ProductStatus = "draft" | "published" | "archived";
+export type SalesChannel = "lovelystep" | "easydeal";
 
 export type ProductSize = {
   label: string;
@@ -44,6 +45,7 @@ export type Product = {
   compareAtCents: number | null;
   currency: string;
   status: ProductStatus;
+  salesChannel: SalesChannel;
   category: string;
   badge: string | null;
   color: string;
@@ -110,6 +112,7 @@ export type AbandonedCheckout = {
 export type Order = {
   id: number;
   orderNumber: string;
+  salesChannel: SalesChannel;
   customerId: number | null;
   firstName: string;
   lastName: string;

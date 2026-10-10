@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Article invalide." }, { status: 400 });
     }
     const product = await getProductById(productId);
-    if (!product || product.status !== "published") return NextResponse.json({ error: "Un article n’est plus disponible." }, { status: 409 });
+    if (!product || product.status !== "published" || product.salesChannel !== "lovelystep") return NextResponse.json({ error: "Un article n’est plus disponible." }, { status: 409 });
     const colors = product.colors.length ? product.colors : (product.color ? [product.color] : []);
     const color = requestedColor || colors[0] || undefined;
     if (requestedColor && !colors.includes(requestedColor)) return NextResponse.json({ error: "Couleur invalide." }, { status: 409 });

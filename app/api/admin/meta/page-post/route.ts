@@ -20,6 +20,8 @@ export async function POST(request: Request) {
   if (!product) return NextResponse.json({ error: "Produit introuvable." }, { status: 404 });
   if (product.status !== "published") return NextResponse.json({ error: "Le produit doit être publié." }, { status: 409 });
 
+  if (product.salesChannel !== "lovelystep") return NextResponse.json({ error: "Ce produit appartient à Easy Deal DZ et ne doit pas être publié sur les comptes LovelyStep." }, { status: 409 });
+
   const result = channel === "instagram"
     ? await publishProductToInstagram(product, true)
     : await publishProductToFacebookPage(product, true);

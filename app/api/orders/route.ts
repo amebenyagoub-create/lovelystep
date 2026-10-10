@@ -4,7 +4,7 @@ import { revalidateTag } from "next/cache";
 import { CATALOG_TAG } from "@/lib/public-cache";
 import { validAlgeriaAddress } from "@/lib/algeria";
 import { isValidCheckoutDraftToken } from "@/lib/checkout-draft";
-import { getCustomerSession, normalizeAlgerianPhone } from "@/lib/customer-auth";
+import { getCustomerSession, normalizeAlgerianPhone, validSameOrigin } from "@/lib/customer-auth";
 import { allowOrderAttempt, allowOrderForPhone, createOrder, getDeliveryRate, getProductById, StockUnavailableError } from "@/lib/db-postgres";
 import { queueOrderGoogleSheetSync } from "@/lib/google-sheets";
 import { sendPurchaseEvent } from "@/lib/meta/purchase";
@@ -15,17 +15,28 @@ import { metaRequestContext } from "@/lib/meta/request";
 import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
 import { tiktokRequestContext } from "@/lib/tiktok/request";
 import { processAdminOrderPushNotifications } from "@/lib/admin-push";
+import { easyDealCorsHeaders } from "@/lib/easydeal";
 import { log } from "@/lib/log";
-import type { DeliveryType, OrderItem } from "@/lib/types";
+import type { DeliveryType, OrderItem, SalesChannel } from "@/lib/types";
 
 export const runtime = "nodejs";
 type RequestItem = { productId?: number; size?: string; color?: string; quantity?: number };
 
+export async function OPTIONS(request: Request) {
+  const headers = easyDealCorsHeaders(request);
+  return headers ? new Response(null, { status: 204, headers }) : NextResponse.json({ error: "Origine non autorisée." }, { status: 403 });
+}
+
 export async function POST(request: Request) {
+  const salesChannel: SalesChannel = request.headers.get("x-sales-channel") === "easydeal" ? "easydeal" : "lovelystep";
+  const corsHeaders = salesChannel === "easydeal" ? easyDealCorsHeaders(request) : null;
+  const respond = (payload: object, status: number) => NextResponse.json(payload, { status, ...(corsHeaders ? { headers: corsHeaders } : {}) });
+  if (salesChannel === "easydeal" && !corsHeaders) return respond({ error: "Origine non autorisée." }, 403);
+  if (salesChannel === "lovelystep" && request.headers.has("origin") && !validSameOrigin(request)) return respond({ error: "Origine non autorisée." }, 403);
   const length = Number(request.headers.get("content-length") || 0);
-  if (length > 64 * 1024) return NextResponse.json({ error: "Requête trop volumineuse." }, { status: 413 });
+  if (length > 64 * 1024) return respond({ error: "Requête trop volumineuse." }, 413);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "local";
-  if (!await allowOrderAttempt(ip)) return NextResponse.json({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, { status: 429 });
+  if (!await allowOrderAttempt(ip)) return respond({ error: "Trop de tentatives. Veuillez réessayer dans 30 minutes." }, 429);
   const body = await request.json().catch(() => ({})) as { fullName?: string; firstName?: string; lastName?: string; phone?: string; wilayaCode?: string; commune?: string; deliveryType?: DeliveryType; deliveryHubId?: string; address?: string; notes?: string; checkoutToken?: string; locale?: "fr" | "en" | "ar"; items?: RequestItem[]; attribution?: unknown };
   const submittedName = String(body.fullName ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
   const nameParts = submittedName.split(" ").filter(Boolean);
@@ -41,45 +52,45 @@ export async function POST(request: Request) {
   const address = "";
   const notes = String(body.notes ?? "").trim().slice(0, 500);
   if (customerName.length < 3 || !phone || !wilaya) {
-    return NextResponse.json({ error: "Veuillez vérifier vos coordonnées de livraison." }, { status: 400 });
+    return respond({ error: "Veuillez vérifier vos coordonnées de livraison." }, 400);
   }
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 20) {
-    return NextResponse.json({ error: "Votre panier est vide ou invalide." }, { status: 400 });
+    return respond({ error: "Votre panier est vide ou invalide." }, 400);
   }
   // Per-IP throttling above does not stop a rotating-IP flood of fake COD orders,
   // each of which reserves stock and costs a confirmation message.
   if (!await allowOrderForPhone(phone)) {
-    return NextResponse.json({ error: "Plusieurs commandes sont déjà en attente de confirmation avec ce numéro. Confirmez-les avant d’en passer une nouvelle." }, { status: 429 });
+    return respond({ error: "Plusieurs commandes sont déjà en attente de confirmation avec ce numéro. Confirmez-les avant d’en passer une nouvelle." }, 429);
   }
 
   const requestedItems = new Map<string, Required<Pick<RequestItem, "productId" | "size" | "quantity">> & { color: string }>();
   for (const item of body.items) {
-    if (!item || typeof item !== "object") return NextResponse.json({ error: "Un article du panier est invalide." }, { status: 400 });
+    if (!item || typeof item !== "object") return respond({ error: "Un article du panier est invalide." }, 400);
     const productId = Number(item.productId);
     const quantity = Number(item.quantity);
     const size = String(item.size ?? "").trim().slice(0, 60);
     const color = String(item.color ?? "").trim().slice(0, 80);
     if (!Number.isInteger(productId) || productId < 1 || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || !size) {
-      return NextResponse.json({ error: "Un article du panier est invalide." }, { status: 400 });
+      return respond({ error: "Un article du panier est invalide." }, 400);
     }
     const key = `${productId}\u0000${size}\u0000${color}`;
     const current = requestedItems.get(key);
     const combinedQuantity = (current?.quantity ?? 0) + quantity;
-    if (combinedQuantity > 10) return NextResponse.json({ error: "Maximum 10 pièces identiques par commande." }, { status: 400 });
+    if (combinedQuantity > 10) return respond({ error: "Maximum 10 pièces identiques par commande." }, 400);
     requestedItems.set(key, { productId, size, color, quantity: combinedQuantity });
   }
 
   const items: OrderItem[] = [];
   for (const item of requestedItems.values()) {
     const product = await getProductById(item.productId);
-    if (!product || product.status !== "published") return NextResponse.json({ error: "Un article n’est plus disponible." }, { status: 409 });
+    if (!product || product.status !== "published" || product.salesChannel !== salesChannel) return respond({ error: "Un article n’est plus disponible." }, 409);
     const availableColors = product.colors.length ? product.colors : (product.color ? [product.color] : []);
     const color = item.color || availableColors[0] || undefined;
-    if (item.color && !availableColors.includes(item.color)) return NextResponse.json({ error: "La couleur sélectionnée n’est plus disponible." }, { status: 409 });
+    if (item.color && !availableColors.includes(item.color)) return respond({ error: "La couleur sélectionnée n’est plus disponible." }, 409);
     const availableStock = product.variants.length
       ? product.variants.find((variant) => variant.size === item.size && variant.color === (color ?? ""))?.stock ?? 0
       : product.sizes.find((value) => value.label === item.size)?.stock ?? 0;
-    if (availableStock < item.quantity) return NextResponse.json({ error: "Cette couleur ou cette taille n’est plus disponible." }, { status: 409 });
+    if (availableStock < item.quantity) return respond({ error: "Cette couleur ou cette taille n’est plus disponible." }, 409);
     items.push({
       productId: product.id,
       slug: product.slug,
@@ -95,12 +106,12 @@ export async function POST(request: Request) {
 
   const subtotalCents = items.reduce((total, item) => total + item.unitPriceCents * item.quantity, 0);
   const deliveryRate = await getDeliveryRate(wilayaCode);
-  if (!deliveryRate || !deliveryRate.active) return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
+  if (!deliveryRate || !deliveryRate.active) return respond({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, 409);
   const rawShippingCents = deliveryType === "office" ? deliveryRate.officeCents : deliveryRate.homeCents;
   // Un tarif a zero n'est pas une livraison offerte, c'est un tarif jamais renseigne : la
   // commande partirait avec une livraison payee a ZR mais facturee a personne.
   if (!Number.isFinite(rawShippingCents) || rawShippingCents <= 0) {
-    return NextResponse.json({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, { status: 409 });
+    return respond({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, 409);
   }
   const shippingCents = Math.round(rawShippingCents);
   try {
@@ -120,22 +131,24 @@ export async function POST(request: Request) {
     const hub = submitted?.status === "resolved" ? submitted.hub : null;
     const hubId = submitted?.status === "unavailable" ? submittedHubId : hub?.id ?? null;
     const customer = await getCustomerSession();
-    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents, checkoutToken: isValidCheckoutDraftToken(body.checkoutToken) ? body.checkoutToken : null });
+    const order = await createOrder({ customerId: customer?.id ?? null, firstName, lastName, customerName, phone, city: commune, wilayaCode, wilayaName: wilaya.nameFr, commune, address, deliveryType, deliveryHubId: hubId, deliveryHubName: hub?.name ?? null, notes, items, subtotalCents, shippingCents, totalCents: subtotalCents + shippingCents, checkoutToken: isValidCheckoutDraftToken(body.checkoutToken) ? body.checkoutToken : null, salesChannel });
     // Tracking runs after the response and swallows its own failures: it must never affect the order.
-    const metaContext = metaRequestContext(request);
-    const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
-    const requestTikTokContext = tiktokRequestContext(request);
-    const tiktokContext = attribution?.last.ttclid ? { ...requestTikTokContext, ttclid: attribution.last.ttclid } : requestTikTokContext;
-    after(() => persistOrderAttribution(order.id, attribution, metaContext));
-    after(() => Promise.allSettled([sendPurchaseEvent(order, metaContext), sendTikTokPurchase(order, metaContext, tiktokContext)]).then(() => undefined));
+    if (salesChannel === "lovelystep") {
+      const metaContext = metaRequestContext(request);
+      const attribution = metaContext.consentGranted ? parseAttributionPayload(body.attribution) : null;
+      const requestTikTokContext = tiktokRequestContext(request);
+      const tiktokContext = attribution?.last.ttclid ? { ...requestTikTokContext, ttclid: attribution.last.ttclid } : requestTikTokContext;
+      after(() => persistOrderAttribution(order.id, attribution, metaContext));
+      after(() => Promise.allSettled([sendPurchaseEvent(order, metaContext), sendTikTokPurchase(order, metaContext, tiktokContext)]).then(() => undefined));
+    }
     // Stock just changed: the sold-out badge and the size picker must not lag.
     revalidateTag(CATALOG_TAG, { expire: 0 });
     after(() => queueOrderGoogleSheetSync(order));
     after(() => processAdminOrderPushNotifications(10).then(() => undefined));
     // The browser Pixel must reuse this exact id, otherwise Meta counts the purchase twice.
-    return NextResponse.json({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: purchaseEventId(order.orderNumber) }, { status: 201 });
+    return respond({ ok: true, orderNumber: order.orderNumber, totalCents: order.totalCents, metaEventId: salesChannel === "lovelystep" ? purchaseEventId(order.orderNumber) : null }, 201);
   } catch (error) {
-    if (error instanceof StockUnavailableError) return NextResponse.json({ error: "Le stock vient de changer. Actualisez votre panier puis réessayez." }, { status: 409 });
-    return NextResponse.json({ error: "La commande n’a pas pu être enregistrée." }, { status: 500 });
+    if (error instanceof StockUnavailableError) return respond({ error: "Le stock vient de changer. Actualisez votre panier puis réessayez." }, 409);
+    return respond({ error: "La commande n’a pas pu être enregistrée." }, 500);
   }
 }

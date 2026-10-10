@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS products (
   compare_at_cents BIGINT,
   currency TEXT NOT NULL DEFAULT 'DZD',
   status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','archived')),
+  sales_channel TEXT NOT NULL DEFAULT 'lovelystep' CHECK(sales_channel IN ('lovelystep','easydeal')),
   category TEXT NOT NULL DEFAULT 'Ensembles',
   badge TEXT,
   color TEXT NOT NULL DEFAULT '',
@@ -73,6 +74,7 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS orders (
   id BIGSERIAL PRIMARY KEY,
   order_number TEXT NOT NULL UNIQUE,
+  sales_channel TEXT NOT NULL DEFAULT 'lovelystep' CHECK(sales_channel IN ('lovelystep','easydeal')),
   customer_name TEXT NOT NULL,
   customer_id BIGINT REFERENCES customers(id) ON DELETE SET NULL,
   first_name TEXT NOT NULL DEFAULT '',
@@ -402,6 +404,8 @@ ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS return_cost_cents BIGINT NOT
 -- partir de la commune et echoue quand plusieurs bureaux la partagent -- apres la commande.
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_id TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_name TEXT;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'lovelystep';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'lovelystep';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log_at TIMESTAMPTZ;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS google_sheet_state TEXT;

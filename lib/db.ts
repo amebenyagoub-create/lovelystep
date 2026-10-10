@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { algeriaWilayas } from "./algeria";
-import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, ImportJob, Order, OrderItem, OrderStatus, Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, StoreSettings } from "./types";
+import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, ImportJob, Order, OrderItem, OrderStatus, Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
 
 type Row = Record<string, unknown>;
 
@@ -56,6 +56,7 @@ db.exec(`
     compare_at_cents INTEGER,
     currency TEXT NOT NULL DEFAULT 'DZD',
     status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','published','archived')),
+    sales_channel TEXT NOT NULL DEFAULT 'lovelystep' CHECK(sales_channel IN ('lovelystep','easydeal')),
     category TEXT NOT NULL DEFAULT 'Ensembles',
     badge TEXT,
     color TEXT NOT NULL DEFAULT '',
@@ -80,6 +81,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     order_number TEXT NOT NULL UNIQUE,
+    sales_channel TEXT NOT NULL DEFAULT 'lovelystep' CHECK(sales_channel IN ('lovelystep','easydeal')),
     customer_name TEXT NOT NULL,
     customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL,
     first_name TEXT NOT NULL DEFAULT '',
@@ -208,6 +210,7 @@ ensureColumn("products", "cost_cents", "INTEGER NOT NULL DEFAULT 0 CHECK(cost_ce
 ensureColumn("products", "variants_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("products", "color_images_json", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("products", "translations_json", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("products", "sales_channel", "TEXT NOT NULL DEFAULT 'lovelystep'");
 ensureColumn("orders", "stock_reserved", "INTEGER NOT NULL DEFAULT 0 CHECK(stock_reserved IN (0,1))");
 ensureColumn("orders", "customer_id", "INTEGER REFERENCES customers(id) ON DELETE SET NULL");
 ensureColumn("orders", "first_name", "TEXT NOT NULL DEFAULT ''");
@@ -218,6 +221,7 @@ ensureColumn("orders", "commune", "TEXT NOT NULL DEFAULT ''");
 ensureColumn("orders", "delivery_type", "TEXT NOT NULL DEFAULT 'home'");
 ensureColumn("orders", "delivery_hub_id", "TEXT");
 ensureColumn("orders", "delivery_hub_name", "TEXT");
+ensureColumn("orders", "sales_channel", "TEXT NOT NULL DEFAULT 'lovelystep'");
 ensureColumn("orders", "google_sheet_state", "TEXT");
 ensureColumn("orders", "whatsapp_log", "TEXT");
 ensureColumn("orders", "whatsapp_log_at", "TEXT");
@@ -314,7 +318,7 @@ function mapProduct(row: Row): Product {
   return {
     id: Number(row.id), slug: String(row.slug), name: String(row.name), shortDescription: String(row.short_description ?? ""),
     description: String(row.description ?? ""), priceCents: Number(row.price_cents), costCents: Number(row.cost_cents ?? 0), compareAtCents: row.compare_at_cents == null ? null : Number(row.compare_at_cents),
-    currency: String(row.currency ?? "DZD"), status: String(row.status) as ProductStatus, category: String(row.category),
+    currency: String(row.currency ?? "DZD"), status: String(row.status) as ProductStatus, salesChannel: String(row.sales_channel ?? "lovelystep") as SalesChannel, category: String(row.category),
     badge: row.badge == null ? null : String(row.badge), color: String(row.color ?? ""), colors: parseJson<string[]>(row.colors_json, []), materials: String(row.materials ?? ""), care: String(row.care ?? ""),
     sourceUrl: row.source_url == null ? null : String(row.source_url), images: parseJson<string[]>(row.images_json, []),
     colorImages: parseJson<Record<string, string>>(row.color_images_json, {}),
@@ -326,12 +330,16 @@ function mapProduct(row: Row): Product {
 }
 
 export function listProducts(includeUnpublished = false): Product[] {
-  const sql = includeUnpublished ? "SELECT * FROM products ORDER BY updated_at DESC" : "SELECT * FROM products WHERE status='published' ORDER BY updated_at DESC";
+  const sql = includeUnpublished ? "SELECT * FROM products WHERE sales_channel='lovelystep' ORDER BY updated_at DESC" : "SELECT * FROM products WHERE status='published' AND sales_channel='lovelystep' ORDER BY updated_at DESC";
   return (db.prepare(sql).all() as Row[]).map(mapProduct);
 }
 
-export function getProductBySlug(slug: string, includeUnpublished = false): Product | null {
-  const row = db.prepare(`SELECT * FROM products WHERE slug=? ${includeUnpublished ? "" : "AND status='published'"}`).get(slug) as Row | undefined;
+export function listAllProducts(): Product[] {
+  return (db.prepare("SELECT * FROM products ORDER BY updated_at DESC").all() as Row[]).map(mapProduct);
+}
+
+export function getProductBySlug(slug: string, includeUnpublished = false, salesChannel: SalesChannel = "lovelystep"): Product | null {
+  const row = db.prepare(`SELECT * FROM products WHERE slug=? AND sales_channel=? ${includeUnpublished ? "" : "AND status='published'"}`).get(slug, salesChannel) as Row | undefined;
   return row ? mapProduct(row) : null;
 }
 
@@ -356,28 +364,28 @@ export function saveProduct(input: Partial<Product> & Pick<Product, "name" | "sl
   if (input.id && !current) throw new Error("PRODUCT_NOT_FOUND");
   const values = { id: input.id ?? null, slug: input.slug, name: input.name, short: input.shortDescription ?? current?.shortDescription ?? "",
     description: input.description ?? current?.description ?? "", price: input.priceCents, cost: input.costCents ?? current?.costCents ?? 0, compareAt: input.compareAtCents ?? null,
-    currency: input.currency ?? "DZD", status: input.status ?? current?.status ?? "draft", category: input.category ?? current?.category ?? "Ensembles",
+    currency: input.currency ?? "DZD", status: input.status ?? current?.status ?? "draft", salesChannel: input.salesChannel ?? current?.salesChannel ?? "lovelystep", category: input.category ?? current?.category ?? "Ensembles",
     badge: input.badge ?? null, color: input.color ?? current?.color ?? "", colors: JSON.stringify(input.colors ?? current?.colors ?? []), materials: input.materials ?? "", care: input.care ?? "", sourceUrl: input.sourceUrl ?? null,
     images: JSON.stringify(input.images ?? current?.images ?? []), colorImages: JSON.stringify(input.colorImages ?? current?.colorImages ?? {}), sizes: JSON.stringify(input.sizes ?? current?.sizes ?? []), variants: JSON.stringify(input.variants ?? current?.variants ?? []),
     features: JSON.stringify(input.features ?? current?.features ?? []), testimonials: JSON.stringify(input.testimonials ?? current?.testimonials ?? []), translations: JSON.stringify(input.translations ?? current?.translations ?? {}), sizeGuide: input.sizeGuideImage ?? current?.sizeGuideImage ?? null,
     seoTitle: input.seoTitle ?? input.name, seoDescription: input.seoDescription ?? input.shortDescription ?? "" };
   if (current) {
     db.prepare(`UPDATE products SET slug=@slug,name=@name,short_description=@short,description=@description,price_cents=@price,cost_cents=@cost,compare_at_cents=@compareAt,
-      currency=@currency,status=@status,category=@category,badge=@badge,color=@color,colors_json=@colors,materials=@materials,care=@care,source_url=@sourceUrl,
+      currency=@currency,status=@status,sales_channel=@salesChannel,category=@category,badge=@badge,color=@color,colors_json=@colors,materials=@materials,care=@care,source_url=@sourceUrl,
       images_json=@images,color_images_json=@colorImages,sizes_json=@sizes,variants_json=@variants,features_json=@features,testimonials_json=@testimonials,translations_json=@translations,size_guide_image=@sizeGuide,seo_title=@seoTitle,seo_description=@seoDescription,
       updated_at=CURRENT_TIMESTAMP WHERE id=@id`).run(values);
     return getProductById(current.id)!;
   }
-  const result = db.prepare(`INSERT INTO products (slug,name,short_description,description,price_cents,cost_cents,compare_at_cents,currency,status,category,badge,color,colors_json,
+  const result = db.prepare(`INSERT INTO products (slug,name,short_description,description,price_cents,cost_cents,compare_at_cents,currency,status,sales_channel,category,badge,color,colors_json,
     materials,care,source_url,images_json,color_images_json,sizes_json,variants_json,features_json,testimonials_json,translations_json,size_guide_image,seo_title,seo_description)
-    VALUES (@slug,@name,@short,@description,@price,@cost,@compareAt,@currency,@status,@category,@badge,@color,@colors,@materials,@care,@sourceUrl,@images,@colorImages,@sizes,@variants,@features,@testimonials,@translations,@sizeGuide,@seoTitle,@seoDescription)`).run(values);
+    VALUES (@slug,@name,@short,@description,@price,@cost,@compareAt,@currency,@status,@salesChannel,@category,@badge,@color,@colors,@materials,@care,@sourceUrl,@images,@colorImages,@sizes,@variants,@features,@testimonials,@translations,@sizeGuide,@seoTitle,@seoDescription)`).run(values);
   return getProductById(Number(result.lastInsertRowid))!;
 }
 
 function mapOrder(row: Row): Order {
   const customerName = String(row.customer_name);
   const nameParts = customerName.trim().split(/\s+/);
-  return { id: Number(row.id), orderNumber: String(row.order_number), customerId: row.customer_id == null ? null : Number(row.customer_id),
+  return { id: Number(row.id), orderNumber: String(row.order_number), salesChannel: String(row.sales_channel ?? "lovelystep") as SalesChannel, customerId: row.customer_id == null ? null : Number(row.customer_id),
     firstName: String(row.first_name ?? "") || nameParts[0] || "", lastName: String(row.last_name ?? "") || nameParts.slice(1).join(" "), customerName,
     phone: String(row.phone), city: String(row.city), wilayaCode: String(row.wilaya_code ?? ""), wilayaName: String(row.wilaya_name ?? row.city ?? ""), commune: String(row.commune ?? row.city ?? ""),
     address: String(row.address), deliveryType: (row.delivery_type === "office" ? "office" : "home") as DeliveryType,
@@ -468,14 +476,17 @@ type CreateOrderInput = {
   subtotalCents: number;
   shippingCents: number;
   totalCents: number;
+  salesChannel?: SalesChannel;
 };
 
 export function createOrder(input: CreateOrderInput): Order {
   return db.transaction(() => {
     changeStock(input.items, -1);
-    const orderNumber = `LS-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
-    const result = db.prepare(`INSERT INTO orders (order_number,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,1)`).run(orderNumber,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId ?? null,input.deliveryHubName ?? null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents);
+    const salesChannel = input.salesChannel ?? "lovelystep";
+    const prefix = salesChannel === "easydeal" ? "ED" : "LS";
+    const orderNumber = `${prefix}-${new Date().toISOString().slice(2,10).replaceAll("-","")}-${crypto.randomBytes(4).toString("hex").toUpperCase()}`;
+    const result = db.prepare(`INSERT INTO orders (order_number,sales_channel,customer_id,first_name,last_name,customer_name,phone,city,wilaya_code,wilaya_name,commune,address,delivery_type,delivery_hub_id,delivery_hub_name,notes,status,items_json,subtotal_cents,shipping_cents,total_cents,stock_reserved)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'new',?,?,?,?,1)`).run(orderNumber,salesChannel,input.customerId,input.firstName,input.lastName,input.customerName,input.phone,input.city,input.wilayaCode,input.wilayaName,input.commune,input.address,input.deliveryType,input.deliveryHubId ?? null,input.deliveryHubName ?? null,input.notes,JSON.stringify(input.items),input.subtotalCents,input.shippingCents,input.totalCents);
     return mapOrder(db.prepare("SELECT * FROM orders WHERE id=?").get(result.lastInsertRowid) as Row);
   })();
 }
@@ -628,7 +639,7 @@ export function dashboardStats() {
   const scalar = (sql: string) => Number((db.prepare(sql).get() as { count: number }).count);
   const delivered = (db.prepare("SELECT * FROM orders WHERE status='delivered'").all() as Row[]).map(mapOrder);
   const deliveredRevenueCents = delivered.reduce((sum, order) => sum + order.totalCents, 0);
-  const productCosts = new Map(listProducts(true).map((product) => [product.id, product.costCents]));
+  const productCosts = new Map(listAllProducts().map((product) => [product.id, product.costCents]));
   const deliveredCostCents = delivered.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + (item.unitCostCents ?? productCosts.get(item.productId) ?? 0) * item.quantity, 0), 0);
   const phoneCounts = new Map<string, number>();
   for (const order of delivered) {
@@ -636,7 +647,7 @@ export function dashboardStats() {
     if (phone) phoneCounts.set(phone, (phoneCounts.get(phone) ?? 0) + 1);
   }
   const repeatBuyers = [...phoneCounts.values()].filter((count) => count > 1).length;
-  const products = listProducts(true);
+  const products = listAllProducts();
   const inventoryUnits = products.reduce((sum, product) => sum + (product.variants.length
     ? product.variants.reduce((variantSum, variant) => variantSum + Math.max(0, Math.floor(Number(variant.stock) || 0)), 0)
     : product.sizes.reduce((sizeSum, size) => sizeSum + Math.max(0, Math.floor(Number(size.stock) || 0)), 0)), 0);

@@ -31,12 +31,12 @@ export function productMetaAutomationPlan(previous: Product | null, product: Pro
 } {
   return {
     // Any save can affect title, image, price, availability, stock or publication status.
-    catalog: process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true",
+    catalog: product.salesChannel === "lovelystep" && process.env.META_AUTO_CATALOG_SYNC_ENABLED === "true",
     // A Page post is an announcement, so edits to an already-published product must not repost it.
-    pagePost: process.env.META_AUTO_POST_ENABLED === "true"
+    pagePost: product.salesChannel === "lovelystep" && process.env.META_AUTO_POST_ENABLED === "true"
       && product.status === "published"
       && previous?.status !== "published",
-    instagramPost: process.env.META_INSTAGRAM_AUTO_POST_ENABLED === "true"
+    instagramPost: product.salesChannel === "lovelystep" && process.env.META_INSTAGRAM_AUTO_POST_ENABLED === "true"
       && product.status === "published"
       && previous?.status !== "published",
   };

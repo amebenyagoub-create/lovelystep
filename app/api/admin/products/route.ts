@@ -4,7 +4,7 @@ import { CATALOG_TAG } from "@/lib/public-cache";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit, deleteProduct, getProductById, saveProduct } from "@/lib/db-postgres";
 import { productMetaAutomationPlan, runDeletedProductMetaAutomation, runProductMetaAutomation } from "@/lib/meta/product-automation";
-import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant } from "@/lib/types";
+import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel } from "@/lib/types";
 
 const statuses: ProductStatus[] = ["draft", "published", "archived"];
 /** Markers the AI importer leaves behind for a human to replace. */
@@ -68,6 +68,7 @@ export async function POST(request: Request) {
   }
 
   const status = statuses.includes(body.status as ProductStatus) ? body.status as ProductStatus : "draft";
+  const salesChannel: SalesChannel = body.salesChannel === "easydeal" ? "easydeal" : "lovelystep";
   const requestedColors = Array.isArray(body.colors)
     ? [...new Map(body.colors.map(String).map((value) => value.trim().slice(0, 80)).filter(Boolean).map((value) => [value.toLocaleLowerCase("fr"), value])).values()].slice(0, 30)
     : [];
@@ -143,6 +144,7 @@ export async function POST(request: Request) {
       compareAtCents,
       currency: "DZD",
       status,
+      salesChannel,
       category: String(body.category || "Ensembles").trim().slice(0, 80),
       badge: String(body.badge || "").trim().slice(0, 80) || null,
       color: colors.join(", "),
@@ -160,7 +162,7 @@ export async function POST(request: Request) {
       translations,
     });
     revalidateTag(CATALOG_TAG, { expire: 0 });
-    await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status });
+    await audit(session.adminId, id ? "product.update" : "product.create", "product", String(product.id), { status: product.status, salesChannel: product.salesChannel });
     const metaAutomation = productMetaAutomationPlan(previous, product);
     if (metaAutomation.catalog || metaAutomation.pagePost || metaAutomation.instagramPost) {
       after(() => runProductMetaAutomation(previous, product));

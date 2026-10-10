@@ -39,6 +39,7 @@
     "test:integration": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-meta-integration.mjs",
     "test:privacy": "node --env-file=.env.local scripts/test-privacy.mjs",
     "test:csrf": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-csrf-origin.mjs",
+    "test:easydeal": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-easydeal-channel.mjs",
     "zr:check": "node --env-file=.env.local scripts/check-zrexpress.mjs",
     "test:zrexpress-contract": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-zrexpress-contract.mjs",
     "test:whatsapp": "node --experimental-strip-types --import ./scripts/ts-resolve-hook.mjs scripts/test-whatsapp-agent.mjs",
