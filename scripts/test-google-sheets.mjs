@@ -4,6 +4,7 @@ import { ORDER_SHEET_HEADERS, orderSheetRow, orderStatusFromSheetState, readOrde
 const sample = {
   id: 1,
   orderNumber: "LS-TEST-NOT-WRITTEN",
+  salesChannel: "lovelystep",
   customerId: null,
   firstName: "Lina",
   lastName: "Test",
@@ -36,9 +37,11 @@ const row = orderSheetRow(sample);
 assert.equal(row.length, ORDER_SHEET_HEADERS.length);
 assert.equal(row[4], "0550000001");
 assert.equal(row[5], "+213550000001");
-assert.match(row[12], /2-3 ans/);
+assert.match(row[12], /3-4 ans/);
 assert.equal(row[14], 7500);
 assert.equal(row[15], "home");
+assert.equal(row[17], "lovelystep");
+assert.equal(orderSheetRow({ ...sample, orderNumber: "ED-TEST-NOT-WRITTEN", salesChannel: "easydeal" })[17], "easydeal");
 assert.equal(orderStatusFromSheetState("confirmed"), "confirmed");
 assert.equal(orderStatusFromSheetState("Livrée"), "delivered");
 assert.equal(orderStatusFromSheetState("NEEDS_REVIEW"), "to_confirm");

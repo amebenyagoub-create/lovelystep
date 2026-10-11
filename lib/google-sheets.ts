@@ -232,7 +232,7 @@ export function orderSheetRow(order: Order): Array<string | number | boolean> {
     dzd(order.totalCents),
     order.deliveryType,
     false,
-    "lovelystep",
+    order.salesChannel,
     order.status,
   ];
 }
