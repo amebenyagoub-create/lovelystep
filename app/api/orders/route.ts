@@ -15,7 +15,7 @@ import { metaRequestContext } from "@/lib/meta/request";
 import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
 import { tiktokRequestContext } from "@/lib/tiktok/request";
 import { processAdminOrderPushNotifications } from "@/lib/admin-push";
-import { easyDealCorsHeaders } from "@/lib/easydeal";
+import { easyDealCorsHeaders, easyDealOfferUnitPriceCents } from "@/lib/easydeal";
 import { log } from "@/lib/log";
 import type { DeliveryType, OrderItem, SalesChannel } from "@/lib/types";
 
@@ -99,7 +99,9 @@ export async function POST(request: Request) {
       size: item.size,
       color,
       quantity: item.quantity,
-      unitPriceCents: product.priceCents,
+      unitPriceCents: salesChannel === "easydeal"
+        ? easyDealOfferUnitPriceCents(product.slug, item.quantity, product.priceCents)
+        : product.priceCents,
       unitCostCents: product.costCents,
     });
   }
