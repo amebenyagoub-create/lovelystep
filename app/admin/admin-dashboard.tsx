@@ -176,6 +176,7 @@ export default function AdminDashboard() {
               <button disabled={busy || product.sizes.length === 0 || product.images.length === 0} onClick={() => generateGuide(product.id)}>Générer le visuel tailles</button>
               <button disabled={busy || product.status !== "published" || product.salesChannel !== "lovelystep"} title={product.salesChannel !== "lovelystep" ? "Produit Easy Deal DZ séparé des comptes LovelyStep." : product.status === "published" ? "" : "Publiez le produit d’abord."} onClick={() => void postToFacebook(product)}>Publier sur Facebook</button>
               {product.status === "published" && product.salesChannel === "lovelystep" && <Link href={`/produits/${product.slug}`} target="_blank">Voir ↗</Link>}
+              {product.status === "published" && product.salesChannel === "easydeal" && <a href={`https://easydeal.lovelystep.com/produits/${product.slug}`} target="_blank" rel="noreferrer">Voir sur Easy Deal ↗</a>}
             </div>
           </article>;
         })}</div>
