@@ -52,6 +52,12 @@ const AGE_HEIGHT_MAP: Record<string, string> = {
 
 const AGE_PATTERN = /^\d+\s*[-–]\s*\d+\s*(?:mois|ans?|months?|years?)$/i;
 
+const STORE_AGE_LABELS: Record<string, string> = {
+  "2-3 ans": "3 ans",
+  "3-4 ans": "4 ans",
+  "4-5 ans": "5 ans",
+};
+
 /** En dessous de ce code, le nombre est déjà la stature de l'enfant (gammes bébé 59 à 73). */
 const SUPPLIER_HEIGHT_FLOOR = 80;
 
@@ -82,7 +88,8 @@ export function frenchAgeLabel(size: SizeLike): string {
 }
 
 export function localizedAgeLabel(size: SizeLike, locale: StoreLocale): string {
-  const value = frenchAgeLabel(size);
+  const age = frenchAgeLabel(size);
+  const value = STORE_AGE_LABELS[age] ?? age;
   if (locale === "fr") return value;
 
   const months = value.match(/^(\d+)\s*[-–]\s*(\d+)\s*mois$/i);
@@ -90,6 +97,9 @@ export function localizedAgeLabel(size: SizeLike, locale: StoreLocale): string {
 
   const years = value.match(/^(\d+)\s*[-–]\s*(\d+)\s*ans?$/i);
   if (years) return locale === "ar" ? `${years[1]}–${years[2]} سنوات` : `${years[1]}–${years[2]} years`;
+
+  const singleYear = value.match(/^(\d+)\s*ans?$/i);
+  if (singleYear) return locale === "ar" ? `${singleYear[1]} سنوات` : `${singleYear[1]} years`;
 
   return value;
 }
