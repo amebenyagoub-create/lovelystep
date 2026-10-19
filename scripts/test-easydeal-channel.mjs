@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { easyDealCorsHeaders, easyDealOfferUnitPriceCents, parseEasyDealOrigins } from "../lib/easydeal.ts";
+import { easyDealCorsHeaders, easyDealHasFreeShipping, easyDealOfferUnitPriceCents, parseEasyDealOrigins } from "../lib/easydeal.ts";
 
 const testOrigin = "https://easy-deal-dz-test.benameurgoub.chatgpt.site";
 
@@ -13,9 +13,11 @@ assert.match(allowed?.get("Access-Control-Allow-Headers") ?? "", /X-Sales-Channe
 const denied = easyDealCorsHeaders(new Request("https://lovelystep.com/api/orders", { headers: { origin: "https://evil.example" } }));
 assert.equal(denied, null);
 
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 1, 145_000), 145_000);
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 2, 145_000) * 2, 195_000);
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 3, 145_000) * 3, 360_000);
+assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 1, 145_000), 175_000);
+assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 2, 145_000) * 2, 265_000);
+assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 3, 145_000) * 3, 450_000);
 assert.equal(easyDealOfferUnitPriceCents("autre-produit", 2, 145_000), 145_000);
+assert.equal(easyDealHasFreeShipping("gant-anti-poils-chat-chien", 3), true);
+assert.equal(easyDealHasFreeShipping("gant-anti-poils-chat-chien", 2), false);
 
 console.log(JSON.stringify({ ok: true, easyDealOriginRestricted: true }, null, 2));

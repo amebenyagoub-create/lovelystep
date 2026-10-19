@@ -1,12 +1,16 @@
 const DEFAULT_EASYDEAL_ORIGIN = "https://easy-deal-dz-test.benameurgoub.chatgpt.site";
 
 const EASYDEAL_OFFERS: Record<string, Record<number, number>> = {
-  "gant-anti-poils-chat-chien": { 1: 145_000, 2: 195_000, 3: 360_000 },
+  "gant-anti-poils-chat-chien": { 1: 175_000, 2: 265_000, 3: 450_000 },
 };
 
 export function easyDealOfferUnitPriceCents(slug: string, quantity: number, catalogueUnitPriceCents: number): number {
   const offerTotal = EASYDEAL_OFFERS[slug]?.[quantity];
   return offerTotal && offerTotal % quantity === 0 ? offerTotal / quantity : catalogueUnitPriceCents;
+}
+
+export function easyDealHasFreeShipping(slug: string, quantity: number): boolean {
+  return slug === "gant-anti-poils-chat-chien" && quantity === 3;
 }
 
 export function parseEasyDealOrigins(value: string | undefined): Set<string> {

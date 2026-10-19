@@ -15,7 +15,7 @@ import { metaRequestContext } from "@/lib/meta/request";
 import { sendTikTokPurchase } from "@/lib/tiktok/purchase";
 import { tiktokRequestContext } from "@/lib/tiktok/request";
 import { processAdminOrderPushNotifications } from "@/lib/admin-push";
-import { easyDealCorsHeaders, easyDealOfferUnitPriceCents } from "@/lib/easydeal";
+import { easyDealCorsHeaders, easyDealHasFreeShipping, easyDealOfferUnitPriceCents } from "@/lib/easydeal";
 import { log } from "@/lib/log";
 import type { DeliveryType, OrderItem, SalesChannel } from "@/lib/types";
 
@@ -115,7 +115,9 @@ export async function POST(request: Request) {
   if (!Number.isFinite(rawShippingCents) || rawShippingCents <= 0) {
     return respond({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, 409);
   }
-  const shippingCents = Math.round(rawShippingCents);
+  const shippingCents = salesChannel === "easydeal" && items.length === 1 && easyDealHasFreeShipping(items[0].slug, items[0].quantity)
+    ? 0
+    : Math.round(rawShippingCents);
   try {
     /**
      * Le bureau vient du navigateur : on le reconfronte a la liste reelle de la wilaya.
