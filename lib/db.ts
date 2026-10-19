@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { algeriaWilayas } from "./algeria";
-import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, ImportJob, Order, OrderItem, OrderStatus, Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
+import type { Customer, DeliveryIntegration, DeliveryRate, DeliveryType, ImportJob, Order, OrderItem, OrderStatus, Product, ProductOffer, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
 
 type Row = Record<string, unknown>;
 
@@ -67,6 +67,7 @@ db.exec(`
     source_data_json TEXT,
     images_json TEXT NOT NULL DEFAULT '[]',
     color_images_json TEXT NOT NULL DEFAULT '{}',
+    offers_json TEXT NOT NULL DEFAULT '[]',
     sizes_json TEXT NOT NULL DEFAULT '[]',
     variants_json TEXT NOT NULL DEFAULT '[]',
     features_json TEXT NOT NULL DEFAULT '[]',
@@ -209,6 +210,7 @@ ensureColumn("products", "testimonials_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("products", "cost_cents", "INTEGER NOT NULL DEFAULT 0 CHECK(cost_cents >= 0)");
 ensureColumn("products", "variants_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("products", "color_images_json", "TEXT NOT NULL DEFAULT '{}'");
+ensureColumn("products", "offers_json", "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("products", "translations_json", "TEXT NOT NULL DEFAULT '{}'");
 ensureColumn("products", "sales_channel", "TEXT NOT NULL DEFAULT 'lovelystep'");
 ensureColumn("orders", "stock_reserved", "INTEGER NOT NULL DEFAULT 0 CHECK(stock_reserved IN (0,1))");
@@ -309,6 +311,19 @@ if (!db.prepare("SELECT 1 FROM schema_migrations WHERE name=?").get(seedDzdPrice
   })();
 }
 
+const easyDealOfferMigration = "2026-10-easydeal-product-offers";
+if (!db.prepare("SELECT 1 FROM schema_migrations WHERE name=?").get(easyDealOfferMigration)) {
+  db.transaction(() => {
+    const offers = [
+      { quantity: 1, priceCents: 175_000, compareAtCents: 350_000, freeShipping: false },
+      { quantity: 2, priceCents: 265_000, compareAtCents: 350_000, freeShipping: false },
+      { quantity: 3, priceCents: 450_000, compareAtCents: 525_000, freeShipping: true },
+    ];
+    db.prepare("UPDATE products SET offers_json=? WHERE sales_channel='easydeal' AND slug='gant-anti-poils-chat-chien' AND offers_json='[]'").run(JSON.stringify(offers));
+    db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(easyDealOfferMigration);
+  })();
+}
+
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;
   try { return JSON.parse(value) as T; } catch { return fallback; }
@@ -322,6 +337,7 @@ function mapProduct(row: Row): Product {
     badge: row.badge == null ? null : String(row.badge), color: String(row.color ?? ""), colors: parseJson<string[]>(row.colors_json, []), materials: String(row.materials ?? ""), care: String(row.care ?? ""),
     sourceUrl: row.source_url == null ? null : String(row.source_url), images: parseJson<string[]>(row.images_json, []),
     colorImages: parseJson<Record<string, string>>(row.color_images_json, {}),
+    offers: parseJson<ProductOffer[]>(row.offers_json, []),
     sizes: parseJson<ProductSize[]>(row.sizes_json, []), variants: parseJson<ProductVariant[]>(row.variants_json, []), features: parseJson<string[]>(row.features_json, []), testimonials: parseJson<ProductTestimonial[]>(row.testimonials_json, []),
     translations: parseJson<{ en?: ProductTranslation; ar?: ProductTranslation }>(row.translations_json, {}),
     sizeGuideImage: row.size_guide_image == null ? null : String(row.size_guide_image), seoTitle: row.seo_title == null ? null : String(row.seo_title),
@@ -366,19 +382,19 @@ export function saveProduct(input: Partial<Product> & Pick<Product, "name" | "sl
     description: input.description ?? current?.description ?? "", price: input.priceCents, cost: input.costCents ?? current?.costCents ?? 0, compareAt: input.compareAtCents ?? null,
     currency: input.currency ?? "DZD", status: input.status ?? current?.status ?? "draft", salesChannel: input.salesChannel ?? current?.salesChannel ?? "lovelystep", category: input.category ?? current?.category ?? "Ensembles",
     badge: input.badge ?? null, color: input.color ?? current?.color ?? "", colors: JSON.stringify(input.colors ?? current?.colors ?? []), materials: input.materials ?? "", care: input.care ?? "", sourceUrl: input.sourceUrl ?? null,
-    images: JSON.stringify(input.images ?? current?.images ?? []), colorImages: JSON.stringify(input.colorImages ?? current?.colorImages ?? {}), sizes: JSON.stringify(input.sizes ?? current?.sizes ?? []), variants: JSON.stringify(input.variants ?? current?.variants ?? []),
+    images: JSON.stringify(input.images ?? current?.images ?? []), colorImages: JSON.stringify(input.colorImages ?? current?.colorImages ?? {}), offers: JSON.stringify(input.offers ?? current?.offers ?? []), sizes: JSON.stringify(input.sizes ?? current?.sizes ?? []), variants: JSON.stringify(input.variants ?? current?.variants ?? []),
     features: JSON.stringify(input.features ?? current?.features ?? []), testimonials: JSON.stringify(input.testimonials ?? current?.testimonials ?? []), translations: JSON.stringify(input.translations ?? current?.translations ?? {}), sizeGuide: input.sizeGuideImage ?? current?.sizeGuideImage ?? null,
     seoTitle: input.seoTitle ?? input.name, seoDescription: input.seoDescription ?? input.shortDescription ?? "" };
   if (current) {
     db.prepare(`UPDATE products SET slug=@slug,name=@name,short_description=@short,description=@description,price_cents=@price,cost_cents=@cost,compare_at_cents=@compareAt,
       currency=@currency,status=@status,sales_channel=@salesChannel,category=@category,badge=@badge,color=@color,colors_json=@colors,materials=@materials,care=@care,source_url=@sourceUrl,
-      images_json=@images,color_images_json=@colorImages,sizes_json=@sizes,variants_json=@variants,features_json=@features,testimonials_json=@testimonials,translations_json=@translations,size_guide_image=@sizeGuide,seo_title=@seoTitle,seo_description=@seoDescription,
+      images_json=@images,color_images_json=@colorImages,offers_json=@offers,sizes_json=@sizes,variants_json=@variants,features_json=@features,testimonials_json=@testimonials,translations_json=@translations,size_guide_image=@sizeGuide,seo_title=@seoTitle,seo_description=@seoDescription,
       updated_at=CURRENT_TIMESTAMP WHERE id=@id`).run(values);
     return getProductById(current.id)!;
   }
   const result = db.prepare(`INSERT INTO products (slug,name,short_description,description,price_cents,cost_cents,compare_at_cents,currency,status,sales_channel,category,badge,color,colors_json,
-    materials,care,source_url,images_json,color_images_json,sizes_json,variants_json,features_json,testimonials_json,translations_json,size_guide_image,seo_title,seo_description)
-    VALUES (@slug,@name,@short,@description,@price,@cost,@compareAt,@currency,@status,@salesChannel,@category,@badge,@color,@colors,@materials,@care,@sourceUrl,@images,@colorImages,@sizes,@variants,@features,@testimonials,@translations,@sizeGuide,@seoTitle,@seoDescription)`).run(values);
+    materials,care,source_url,images_json,color_images_json,offers_json,sizes_json,variants_json,features_json,testimonials_json,translations_json,size_guide_image,seo_title,seo_description)
+    VALUES (@slug,@name,@short,@description,@price,@cost,@compareAt,@currency,@status,@salesChannel,@category,@badge,@color,@colors,@materials,@care,@sourceUrl,@images,@colorImages,@offers,@sizes,@variants,@features,@testimonials,@translations,@sizeGuide,@seoTitle,@seoDescription)`).run(values);
   return getProductById(Number(result.lastInsertRowid))!;
 }
 

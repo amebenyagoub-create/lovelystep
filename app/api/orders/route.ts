@@ -81,6 +81,7 @@ export async function POST(request: Request) {
   }
 
   const items: OrderItem[] = [];
+  let easyDealFreeShipping = false;
   for (const item of requestedItems.values()) {
     const product = await getProductById(item.productId);
     if (!product || product.status !== "published" || product.salesChannel !== salesChannel) return respond({ error: "Un article n’est plus disponible." }, 409);
@@ -91,6 +92,7 @@ export async function POST(request: Request) {
       ? product.variants.find((variant) => variant.size === item.size && variant.color === (color ?? ""))?.stock ?? 0
       : product.sizes.find((value) => value.label === item.size)?.stock ?? 0;
     if (availableStock < item.quantity) return respond({ error: "Cette couleur ou cette taille n’est plus disponible." }, 409);
+    if (salesChannel === "easydeal" && easyDealHasFreeShipping(product.offers, item.quantity)) easyDealFreeShipping = true;
     items.push({
       productId: product.id,
       slug: product.slug,
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
       color,
       quantity: item.quantity,
       unitPriceCents: salesChannel === "easydeal"
-        ? easyDealOfferUnitPriceCents(product.slug, item.quantity, product.priceCents)
+        ? easyDealOfferUnitPriceCents(product.offers, item.quantity, product.priceCents)
         : product.priceCents,
       unitCostCents: product.costCents,
     });
@@ -115,7 +117,7 @@ export async function POST(request: Request) {
   if (!Number.isFinite(rawShippingCents) || rawShippingCents <= 0) {
     return respond({ error: "La livraison n’est pas encore disponible dans cette wilaya." }, 409);
   }
-  const shippingCents = salesChannel === "easydeal" && items.length === 1 && easyDealHasFreeShipping(items[0].slug, items[0].quantity)
+  const shippingCents = salesChannel === "easydeal" && items.length === 1 && easyDealFreeShipping
     ? 0
     : Math.round(rawShippingCents);
   try {

@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS products (
   source_data_json JSONB,
   images_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   color_images_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  offers_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   sizes_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   variants_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   features_json JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -405,6 +406,7 @@ ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS return_cost_cents BIGINT NOT
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_id TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_hub_name TEXT;
 ALTER TABLE products ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'lovelystep';
+ALTER TABLE products ADD COLUMN IF NOT EXISTS offers_json JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS sales_channel TEXT NOT NULL DEFAULT 'lovelystep';
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log TEXT;
 ALTER TABLE orders ADD COLUMN IF NOT EXISTS whatsapp_log_at TIMESTAMPTZ;

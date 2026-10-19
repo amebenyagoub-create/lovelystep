@@ -34,6 +34,14 @@ export type ProductTranslation = {
   features?: string[];
 };
 
+export type ProductOffer = {
+  quantity: number;
+  /** Prix total de l'offre, en centimes de DZD. */
+  priceCents: number;
+  compareAtCents: number | null;
+  freeShipping: boolean;
+};
+
 export type Product = {
   id: number;
   slug: string;
@@ -55,6 +63,7 @@ export type Product = {
   sourceUrl: string | null;
   images: string[];
   colorImages: Record<string, string>;
+  offers: ProductOffer[];
   sizes: ProductSize[];
   variants: ProductVariant[];
   features: string[];

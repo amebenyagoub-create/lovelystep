@@ -4,7 +4,7 @@ import { CATALOG_TAG } from "@/lib/public-cache";
 import { requireAdminApi, validCsrf } from "@/lib/auth";
 import { audit, deleteProduct, getProductById, saveProduct } from "@/lib/db-postgres";
 import { productMetaAutomationPlan, runDeletedProductMetaAutomation, runProductMetaAutomation } from "@/lib/meta/product-automation";
-import type { Product, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel } from "@/lib/types";
+import type { Product, ProductOffer, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel } from "@/lib/types";
 
 const statuses: ProductStatus[] = ["draft", "published", "archived"];
 /** Markers the AI importer leaves behind for a human to replace. */
@@ -32,6 +32,16 @@ function cleanSizes(value: unknown): ProductSize[] {
     weight: String(size.weight ?? "").trim().slice(0, 80),
     height: String(size.height ?? "").trim().slice(0, 80),
   })).filter((size) => size.label).slice(0, 80);
+}
+
+function cleanOffers(value: unknown): ProductOffer[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((offer): offer is ProductOffer => Boolean(offer && typeof offer === "object")).map((offer) => ({
+    quantity: Math.floor(Number(offer.quantity) || 0),
+    priceCents: Math.round(Number(offer.priceCents) || 0),
+    compareAtCents: offer.compareAtCents == null ? null : Math.round(Number(offer.compareAtCents) || 0),
+    freeShipping: offer.freeShipping === true,
+  })).slice(0, 10).sort((a, b) => a.quantity - b.quantity);
 }
 
 function sizesFromVariants(variants: ProductVariant[]): ProductSize[] {
@@ -69,6 +79,14 @@ export async function POST(request: Request) {
 
   const status = statuses.includes(body.status as ProductStatus) ? body.status as ProductStatus : "draft";
   const salesChannel: SalesChannel = body.salesChannel === "easydeal" ? "easydeal" : "lovelystep";
+  const offers = salesChannel === "easydeal" ? cleanOffers(body.offers) : [];
+  if (offers.some((offer) => offer.quantity < 1 || offer.quantity > 10 || offer.priceCents < 1 || offer.priceCents > 100_000_000 || offer.priceCents % offer.quantity !== 0
+    || (offer.compareAtCents !== null && (offer.compareAtCents <= offer.priceCents || offer.compareAtCents > 100_000_000)))) {
+    return NextResponse.json({ error: "Chaque offre doit avoir une quantité et un prix total valides. Le total doit être divisible par la quantité et l’ancien prix doit être supérieur." }, { status: 400 });
+  }
+  if (new Set(offers.map((offer) => offer.quantity)).size !== offers.length) {
+    return NextResponse.json({ error: "Chaque quantité ne peut apparaître qu’une seule fois dans les offres." }, { status: 400 });
+  }
   const requestedColors = Array.isArray(body.colors)
     ? [...new Map(body.colors.map(String).map((value) => value.trim().slice(0, 80)).filter(Boolean).map((value) => [value.toLocaleLowerCase("fr"), value])).values()].slice(0, 30)
     : [];
@@ -97,6 +115,9 @@ export async function POST(request: Request) {
     : {};
   if (status === "published" && (priceCents < 1 || images.length === 0 || sizes.length === 0)) {
     return NextResponse.json({ error: "Un produit publié doit avoir un prix, une image et au moins une taille." }, { status: 400 });
+  }
+  if (status === "published" && salesChannel === "easydeal" && offers.length === 0) {
+    return NextResponse.json({ error: "Ajoutez au moins une offre avant de publier ce produit Easy Deal." }, { status: 400 });
   }
 
   // The AI importer stamps drafts with "Import IA à vérifier" and can fall back to
@@ -155,6 +176,7 @@ export async function POST(request: Request) {
       care: String(body.care || "").trim().slice(0, 2_000),
       images,
       colorImages,
+      offers,
       sizes,
       variants,
       features,

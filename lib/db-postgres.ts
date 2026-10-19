@@ -6,7 +6,7 @@ import path from "node:path";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { algeriaWilayas } from "./algeria";
 import { ABANDONED_REMINDER_DELAY_MINUTES } from "./checkout-draft";
-import type { AbandonedCheckout, Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
+import type { AbandonedCheckout, Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductOffer, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
 import { normalizeWhatsAppPhone, type WhatsAppOrderAction } from "./whatsapp/intent";
 
 type Row = QueryResultRow & Record<string, unknown>;
@@ -68,6 +68,15 @@ async function initialize(): Promise<void> {
   await runMigrationOnce("2026-09-admin-push-backfill", async (client) => {
     await client.query("UPDATE orders SET admin_push_sent_at=created_at WHERE admin_push_sent_at IS NULL");
   });
+  await runMigrationOnce("2026-10-easydeal-product-offers", async (client) => {
+    const offers = [
+      { quantity: 1, priceCents: 175_000, compareAtCents: 350_000, freeShipping: false },
+      { quantity: 2, priceCents: 265_000, compareAtCents: 350_000, freeShipping: false },
+      { quantity: 3, priceCents: 450_000, compareAtCents: 525_000, freeShipping: true },
+    ];
+    await client.query(`UPDATE products SET offers_json=$1::jsonb
+      WHERE sales_channel='easydeal' AND slug='gant-anti-poils-chat-chien' AND offers_json='[]'::jsonb`, [JSON.stringify(offers)]);
+  });
 }
 
 export function ensureDatabase(): Promise<void> {
@@ -95,6 +104,7 @@ function mapProduct(row: Row): Product {
     currency: String(row.currency ?? "DZD"), status: String(row.status) as ProductStatus, salesChannel: String(row.sales_channel ?? "lovelystep") as SalesChannel, category: String(row.category), badge: row.badge == null ? null : String(row.badge),
     color: String(row.color ?? ""), colors: parseJson<string[]>(row.colors_json, []), materials: String(row.materials ?? ""), care: String(row.care ?? ""),
     sourceUrl: row.source_url == null ? null : String(row.source_url), images: parseJson<string[]>(row.images_json, []), colorImages: parseJson<Record<string, string>>(row.color_images_json, {}),
+    offers: parseJson<ProductOffer[]>(row.offers_json, []),
     sizes: parseJson<ProductSize[]>(row.sizes_json, []), variants: parseJson<ProductVariant[]>(row.variants_json, []), features: parseJson<string[]>(row.features_json, []),
     testimonials: parseJson<ProductTestimonial[]>(row.testimonials_json, []), translations: parseJson<{ en?: ProductTranslation; ar?: ProductTranslation }>(row.translations_json, {}),
     sizeGuideImage: row.size_guide_image == null ? null : String(row.size_guide_image), seoTitle: row.seo_title == null ? null : String(row.seo_title),
@@ -133,15 +143,16 @@ export async function saveProduct(input: Partial<Product> & Pick<Product, "name"
   const values = [input.slug,input.name,input.shortDescription ?? current?.shortDescription ?? "",input.description ?? current?.description ?? "",input.priceCents,input.costCents ?? current?.costCents ?? 0,
     input.compareAtCents ?? null,input.currency ?? "DZD",input.status ?? current?.status ?? "draft",input.salesChannel ?? current?.salesChannel ?? "lovelystep",input.category ?? current?.category ?? "Ensembles",input.badge ?? null,input.color ?? current?.color ?? "",
     JSON.stringify(input.colors ?? current?.colors ?? []),input.materials ?? current?.materials ?? "",input.care ?? current?.care ?? "",input.sourceUrl ?? current?.sourceUrl ?? null,
-    JSON.stringify(input.images ?? current?.images ?? []),JSON.stringify(input.colorImages ?? current?.colorImages ?? {}),JSON.stringify(input.sizes ?? current?.sizes ?? []),JSON.stringify(input.variants ?? current?.variants ?? []),
+    JSON.stringify(input.images ?? current?.images ?? []),JSON.stringify(input.colorImages ?? current?.colorImages ?? {}),JSON.stringify(input.offers ?? current?.offers ?? []),JSON.stringify(input.sizes ?? current?.sizes ?? []),JSON.stringify(input.variants ?? current?.variants ?? []),
     JSON.stringify(input.features ?? current?.features ?? []),JSON.stringify(input.testimonials ?? current?.testimonials ?? []),JSON.stringify(input.translations ?? current?.translations ?? {}),
     input.sizeGuideImage ?? current?.sizeGuideImage ?? null,input.seoTitle ?? input.name,input.seoDescription ?? input.shortDescription ?? current?.seoDescription ?? ""];
-  const columns = "slug,name,short_description,description,price_cents,cost_cents,compare_at_cents,currency,status,sales_channel,category,badge,color,colors_json,materials,care,source_url,images_json,color_images_json,sizes_json,variants_json,features_json,testimonials_json,translations_json,size_guide_image,seo_title,seo_description";
-  const casts = values.map((_, index) => [13,17,18,19,20,21,22,23].includes(index) ? `$${index + 1}::jsonb` : `$${index + 1}`).join(",");
+  const columns = "slug,name,short_description,description,price_cents,cost_cents,compare_at_cents,currency,status,sales_channel,category,badge,color,colors_json,materials,care,source_url,images_json,color_images_json,offers_json,sizes_json,variants_json,features_json,testimonials_json,translations_json,size_guide_image,seo_title,seo_description";
+  const jsonColumns = [13,17,18,19,20,21,22,23,24];
+  const casts = values.map((_, index) => jsonColumns.includes(index) ? `$${index + 1}::jsonb` : `$${index + 1}`).join(",");
   let result;
   if (current) {
-    const assignments = columns.split(",").map((column, index) => `${column}=${[13,17,18,19,20,21,22,23].includes(index) ? `$${index + 1}::jsonb` : `$${index + 1}`}`).join(",");
-    result = await pool.query(`UPDATE products SET ${assignments},updated_at=NOW() WHERE id=$28 RETURNING *`, [...values, current.id]);
+    const assignments = columns.split(",").map((column, index) => `${column}=${jsonColumns.includes(index) ? `$${index + 1}::jsonb` : `$${index + 1}`}`).join(",");
+    result = await pool.query(`UPDATE products SET ${assignments},updated_at=NOW() WHERE id=$29 RETURNING *`, [...values, current.id]);
   } else {
     result = await pool.query(`INSERT INTO products (${columns}) VALUES (${casts}) RETURNING *`, values);
   }

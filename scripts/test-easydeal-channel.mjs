@@ -13,11 +13,16 @@ assert.match(allowed?.get("Access-Control-Allow-Headers") ?? "", /X-Sales-Channe
 const denied = easyDealCorsHeaders(new Request("https://lovelystep.com/api/orders", { headers: { origin: "https://evil.example" } }));
 assert.equal(denied, null);
 
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 1, 145_000), 175_000);
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 2, 145_000) * 2, 265_000);
-assert.equal(easyDealOfferUnitPriceCents("gant-anti-poils-chat-chien", 3, 145_000) * 3, 450_000);
-assert.equal(easyDealOfferUnitPriceCents("autre-produit", 2, 145_000), 145_000);
-assert.equal(easyDealHasFreeShipping("gant-anti-poils-chat-chien", 3), true);
-assert.equal(easyDealHasFreeShipping("gant-anti-poils-chat-chien", 2), false);
+const offers = [
+  { quantity: 1, priceCents: 175_000, compareAtCents: 350_000, freeShipping: false },
+  { quantity: 2, priceCents: 265_000, compareAtCents: 350_000, freeShipping: false },
+  { quantity: 3, priceCents: 450_000, compareAtCents: 525_000, freeShipping: true },
+];
+assert.equal(easyDealOfferUnitPriceCents(offers, 1, 145_000), 175_000);
+assert.equal(easyDealOfferUnitPriceCents(offers, 2, 145_000) * 2, 265_000);
+assert.equal(easyDealOfferUnitPriceCents(offers, 3, 145_000) * 3, 450_000);
+assert.equal(easyDealOfferUnitPriceCents([], 2, 145_000), 145_000);
+assert.equal(easyDealHasFreeShipping(offers, 3), true);
+assert.equal(easyDealHasFreeShipping(offers, 2), false);
 
 console.log(JSON.stringify({ ok: true, easyDealOriginRestricted: true }, null, 2));
