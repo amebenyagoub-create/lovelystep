@@ -505,3 +505,8 @@ CREATE INDEX IF NOT EXISTS idx_meta_product_page_posts_status ON meta_product_pa
 CREATE INDEX IF NOT EXISTS idx_meta_product_instagram_posts_status ON meta_product_instagram_posts(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_entity ON campaign_ai_analyses(entity_level, entity_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_ai_expiry ON campaign_ai_analyses(expires_at);
+
+CREATE TABLE IF NOT EXISTS media_objects (
+  object_key TEXT PRIMARY KEY,
+  data BYTEA CHECK (octet_length(data) BETWEEN 1 AND 20 * 1024 * 1024)
+);

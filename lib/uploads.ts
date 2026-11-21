@@ -42,11 +42,13 @@ export async function saveProductImages(files: File[]): Promise<string[]> {
       const filename = `${Date.now().toString(36)}-${crypto.randomBytes(8).toString("hex")}.webp`;
       output.push(`/api/media/products/${filename}`);
       if (objectStorageEnabled()) {
-        await Promise.all([
+        const writes = await Promise.allSettled([
           storeObject(`sources/${filename}`, readyToPublish, "image/webp"),
           storeObject(`originals/${filename}`, readyToPublish, "image/webp"),
           storeObject(`products/${filename}`, readyToPublish, "image/webp"),
         ]);
+        const failedWrite = writes.find((write) => write.status === "rejected");
+        if (failedWrite) throw failedWrite.reason;
       } else {
         await Promise.all([
           fs.writeFile(path.join(sourceDirectory, filename), readyToPublish),

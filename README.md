@@ -121,7 +121,7 @@ DATABASE_CA_CERT="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 DATABASE_POOL_SIZE=5
 ```
 
-Le stockage des images produit utilise Supabase Storage. Configurez les variables suivantes sur le même service.
+Les images produit sont stockées dans PostgreSQL. Pour conserver l’accès aux anciens fichiers de Supabase Storage, renseignez les variables suivantes sur le service web.
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://PROJECT.supabase.co
