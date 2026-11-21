@@ -12,6 +12,7 @@
 //      npm run orders:attribution -- --days=30
 
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 const args = new Map(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => {
   const [k, v] = a.slice(2).split("="); return [k, v ?? "true"];
@@ -23,8 +24,7 @@ if (!process.env.DATABASE_URL) { console.error("DATABASE_URL missing. Use: npm r
 const normalize = (value) => (value ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
 
 const client = new pg.Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  ...postgresConnectionOptions(process.env.DATABASE_URL),
   connectionTimeoutMillis: 15_000,
 });
 

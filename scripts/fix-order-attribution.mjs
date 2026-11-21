@@ -24,6 +24,7 @@
 //   npm run orders:fix-attribution -- --campaign=LS_COLD_SEP26 --order=49 --apply
 
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 const args = new Map(process.argv.slice(2).filter((a) => a.startsWith("--")).map((a) => {
   const [k, v] = a.slice(2).split("="); return [k, v ?? "true"];
@@ -39,8 +40,7 @@ if (!campaign) { console.error("--campaign is required, e.g. --campaign=LS_COLD_
 if (!since && !orderId) { console.error("Pass --since=YYYY-MM-DD or --order=<id> so the change stays bounded."); process.exit(2); }
 
 const client = new pg.Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  ...postgresConnectionOptions(process.env.DATABASE_URL),
   connectionTimeoutMillis: 15_000,
 });
 

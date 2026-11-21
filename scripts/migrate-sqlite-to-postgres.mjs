@@ -2,14 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL manque. Utilisez la chaîne Session pooler fournie par Supabase.");
+if (!databaseUrl) throw new Error("DATABASE_URL manque. Utilisez l’URI de connexion PostgreSQL.");
 const sqlitePath = path.resolve(process.env.SQLITE_SOURCE_PATH || path.join(process.cwd(), "data", "lovelystep.db"));
 if (!fs.existsSync(sqlitePath)) throw new Error(`Base SQLite introuvable : ${sqlitePath}`);
 
 const sqlite = new Database(sqlitePath, { readonly: true, fileMustExist: true });
-const pool = new pg.Pool({ connectionString: databaseUrl, ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false }, max: 1 });
+const pool = new pg.Pool({ ...postgresConnectionOptions(databaseUrl), max: 1 });
 const schema = fs.readFileSync(path.join(process.cwd(), "lib", "postgres-schema.sql"), "utf8");
 const tables = ["admins","customers","products","admin_sessions","customer_sessions","login_attempts","delivery_rates","app_settings","import_jobs","orders","audit_logs","order_attempts","schema_migrations","visits"];
 const booleanColumns = new Set(["login_attempts.succeeded","delivery_rates.active","orders.stock_reserved"]);

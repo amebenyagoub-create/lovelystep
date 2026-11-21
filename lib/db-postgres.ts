@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { postgresConnectionOptions } from "./postgres-connection.mjs";
 import { algeriaWilayas } from "./algeria";
 import { ABANDONED_REMINDER_DELAY_MINUTES } from "./checkout-draft";
 import type { AbandonedCheckout, Customer, DeliveryIntegration, DeliveryRate, DeliveryType, Expense, ExpenseAllocationMethod, ExpenseCostType, ExpenseRecurrence, ImportJob, Order, OrderAttribution, OrderDeliveryCost, OrderItem, OrderRefund, OrderStatus, OrderStatusHistoryEntry, Product, ProductCost, ProductOffer, ProductSize, ProductStatus, ProductTestimonial, ProductTranslation, ProductVariant, SalesChannel, StoreSettings } from "./types";
@@ -14,8 +15,7 @@ const connectionString = process.env.DATABASE_URL ?? "postgresql://invalid:inval
 
 const globalPg = globalThis as typeof globalThis & { lovelyStepPool?: Pool; lovelyStepReady?: Promise<void> };
 export const pool = globalPg.lovelyStepPool ?? new Pool({
-  connectionString,
-  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  ...postgresConnectionOptions(connectionString),
   max: Number(process.env.DATABASE_POOL_SIZE ?? 5),
   idleTimeoutMillis: 300_000,
   connectionTimeoutMillis: 12_000,
@@ -40,7 +40,7 @@ async function runMigrationOnce(name: string, fn: (client: PoolClient) => Promis
 }
 
 async function initialize(): Promise<void> {
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL est obligatoire. Configurez la connexion PostgreSQL Supabase.");
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL est obligatoire. Configurez la connexion PostgreSQL.");
   // A build must never migrate a database. `next build` prerenders routes, so any page that
   // reads the database would otherwise run the schema DDL and the backfill migrations against
   // whatever DATABASE_URL happens to be configured on the machine doing the build.

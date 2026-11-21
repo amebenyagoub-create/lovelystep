@@ -12,13 +12,13 @@
 //   npm run delivery:backfill -- --apply
 
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 const apply = process.argv.includes("--apply");
 if (!process.env.DATABASE_URL) { console.error("DATABASE_URL missing. Use the npm script."); process.exit(2); }
 
 const client = new pg.Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  ...postgresConnectionOptions(process.env.DATABASE_URL),
   connectionTimeoutMillis: 15_000,
 });
 

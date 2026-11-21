@@ -1,7 +1,8 @@
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 if(!process.env.DATABASE_URL)throw new Error("DATABASE_URL manque.");
-const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false},max:1});
+const pool=new pg.Pool({...postgresConnectionOptions(process.env.DATABASE_URL),max:1});
 const counts=await pool.query("SELECT (SELECT count(*) FROM products)::int products,(SELECT count(*) FROM orders)::int orders,(SELECT count(*) FROM admins)::int admins");
 await pool.end();
 const base=process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/,"");

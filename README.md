@@ -1,6 +1,6 @@
 # Lovely Step
 
-Boutique locale Node.js/Next.js pour vêtements enfants, avec paiement à la livraison, catalogue SQLite, pages produit détaillées, comptes clients et dashboard administrateur.
+Boutique Node.js/Next.js pour vêtements enfants, avec paiement à la livraison, catalogue PostgreSQL, pages produit détaillées, comptes clients et dashboard administrateur.
 
 Fonctions principales :
 
@@ -16,6 +16,7 @@ Fonctions principales :
 ## Démarrage local
 
 Prérequis : Node.js 22 ou plus récent.
+Copiez `.env.example` vers `.env.local` et renseignez la connexion PostgreSQL avant de démarrer.
 
 ```bash
 npm install
@@ -108,19 +109,21 @@ npm run test:order-flow
 npm run test:store-features
 ```
 
-## Mise en production ultérieure
+## Production avec Aiven PostgreSQL
 
-Avant une ouverture publique : configurez `NEXT_PUBLIC_SITE_URL=https://votre-domaine`, `COOKIE_SECURE=true`, un reverse proxy HTTPS, des sauvegardes chiffrées et un stockage d’images persistant. Pour plusieurs serveurs, remplacez SQLite par PostgreSQL et les fichiers locaux par un stockage objet compatible S3.
+Dans **Connection information** de la console Aiven, copiez l’URI du service et téléchargez le certificat CA. Collez le contenu PEM du certificat dans `DATABASE_CA_CERT` pour vérifier le certificat et le nom d’hôte PostgreSQL. Sur Railway, ces variables s’appliquent au service web `lovelystep`.
 
-## Production avec Supabase
-
-LovelyStep utilise PostgreSQL dès que `DATABASE_URL` est configurée. Dans Supabase, ouvrez **Connect**, choisissez **Session pooler** (port 5432) et placez cette URI dans Railway. Le mot de passe contenant des caractères spéciaux doit être encodé dans l’URI.
-
-Variables Railway requises :
+Variables PostgreSQL du service web
 
 ```env
-DATABASE_URL=postgresql://postgres.PROJECT:mot-de-passe@aws-0-REGION.pooler.supabase.com:5432/postgres
+DATABASE_URL=postgresql://avnadmin:mot-de-passe@HOTE:PORT/defaultdb?sslmode=require
+DATABASE_CA_CERT="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 DATABASE_POOL_SIZE=5
+```
+
+Le stockage des images produit utilise Supabase Storage. Configurez les variables suivantes sur le même service.
+
+```env
 NEXT_PUBLIC_SUPABASE_URL=https://PROJECT.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_...
 SUPABASE_STORAGE_BUCKET=product-media
@@ -128,7 +131,7 @@ SUPABASE_STORAGE_BUCKET=product-media
 
 La clé `SUPABASE_SECRET_KEY` est exclusivement serveur et ne doit jamais porter le préfixe `NEXT_PUBLIC_`. La clé publishable n’est pas nécessaire au fonctionnement actuel du store.
 
-Pour migrer les données et médias locaux avant le basculement :
+Pour importer une ancienne base SQLite ou des fichiers médias locaux :
 
 ```powershell
 npm run db:migrate:supabase

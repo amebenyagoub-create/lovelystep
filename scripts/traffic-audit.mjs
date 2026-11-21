@@ -14,6 +14,7 @@
 //   npm run traffic:audit -- --days=7
 
 import pg from "pg";
+import { postgresConnectionOptions } from "../lib/postgres-connection.mjs";
 
 const args = new Map(
   process.argv.slice(2).filter((arg) => arg.startsWith("--")).map((arg) => {
@@ -28,8 +29,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 const client = new pg.Client({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_SSL === "disable" ? false : { rejectUnauthorized: false },
+  ...postgresConnectionOptions(process.env.DATABASE_URL),
   connectionTimeoutMillis: 15_000,
 });
 
