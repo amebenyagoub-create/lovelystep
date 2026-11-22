@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image, { getImageProps } from "next/image";
 import Link from "next/link";
 import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import LanguageSwitcher from "./language-switcher";
@@ -176,9 +176,14 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
   const deliveryText = deliveryCopy[locale];
   const outOfStockLabel = locale === "ar" ? "نفد المخزون" : locale === "en" ? "Out of stock" : "Rupture de stock";
   const total = subtotal + shipping;
+  const defaultHero = "/images/lovelystep-hero-v3.webp";
   const heroImage = !settings.heroImage || settings.heroImage === "/images/lovelystep-hero-v2.webp"
-    ? "/images/lovelystep-hero-v3.webp"
+    ? defaultHero
     : settings.heroImage;
+  const { props: heroImageProps } = getImageProps({
+    src: heroImage, alt: "", fill: true, loading: "eager", fetchPriority: "high",
+    sizes: "(max-width: 800px) 200vw, 100vw",
+  });
   const productText = (product: PublicProduct) => {
     const translated = locale === "fr" ? undefined : product.translations[locale];
     return { name: translated?.name || product.name, shortDescription: translated?.shortDescription || product.shortDescription };
@@ -249,7 +254,10 @@ export default function Storefront({ products, settings, wilayas, deliveryRates 
     </header>
     <main>
       <section className="hero">
-        <div className="hero-backdrop" aria-hidden="true"><Image src={heroImage} alt="" fill priority quality={90} sizes="(max-width: 800px) 200vw, 100vw" /></div>
+        <picture className="hero-backdrop" aria-hidden="true">
+          {heroImage === defaultHero && <source media="(max-width: 520px)" type="image/avif" srcSet="/hero/lovelystep-hero-v3-mobile.avif" />}
+          <img {...heroImageProps} alt="" />
+        </picture>
         <div className="hero-copy"><span className="eyebrow">{text(settings.heroEyebrow)}</span><h1>{text(settings.heroTitle)} <em>{text(settings.heroAccent)}</em></h1><p>{text(settings.heroDescription)}</p><div className="hero-actions"><a className="primary-button" href="#nouveautes">{text(settings.primaryCta)}</a><a className="text-link" href="#notre-promesse">{t("promise")} <Icon name="arrow" /></a></div><div className="mini-trust"><span>✓ {t("noOnline")}</span><span>✓ {t("phoneConfirm")}</span></div></div>
       </section>
       <section className="trust-strip" id="notre-promesse">{[{ icon: "cash" as const, title: t("cod"), copy: t("codText") }, { icon: "truck" as const, title: t("tracked"), copy: t("trackedText") }, { icon: "heart" as const, title: t("children"), copy: t("childrenText") }, { icon: "shield" as const, title: t("exchange"), copy: t("exchangeText") }].map((item) => <article key={item.title}><Icon name={item.icon} /><div><strong>{item.title}</strong><span>{item.copy}</span></div></article>)}</section>
